@@ -312,7 +312,10 @@ bool PLUGIN_API PhotonEditor::open(void* parent, const PlatformType& platformTyp
 
 void PLUGIN_API PhotonEditor::close() {
     controls_.clear();
-    VSTGUIEditor::close();
+    if (frame) {
+        frame->forget();
+        frame = nullptr;
+    }
 }
 
 void PhotonEditor::valueChanged(CControl* pControl) {
