@@ -1,0 +1,41 @@
+﻿name: Build OpenPhoton VST3 (Windows)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-win64:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Clone VST3 SDK & Download ONNX Runtime GPU
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path third_party | Out-Null
+          git clone --recursive --depth 1 https://github.com/steinbergmedia/vst3sdk.git third_party/vst3sdk
+          $OrtVer = "1.20.1"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$OrtVer/onnxruntime-win-x64-gpu-$OrtVer.zip" -OutFile ort.zip
+          Expand-Archive ort.zip -DestinationPath third_party -Force
+          Rename-Item "third_party/onnxruntime-win-x64-gpu-$OrtVer" "onnxruntime"
+          Remove-Item ort.zip -Force
+
+      - name: Configure CMake
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build Release
+        run: cmake --build build --config Release -j 4
+
+      - name: Prepare VST3 Bundle Folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Recurse -Force "build/VST3/Release/OpenPhoton.vst3" "dist/OpenPhoton.vst3"
+
+      - name: Upload OpenPhoton.vst3 Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: OpenPhoton-Win64-VST3
+          path: dist/
