@@ -13,9 +13,29 @@ MODELS_DIR = Path(__file__).parent.parent / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 MODEL_REGISTRY = {
+    "Kim_Vocal_2.onnx": {
+        "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx",
+        "description": "Kimberley Jensen Vocal SOTA MDX-Net ONNX [63.7 MB]",
+        "expected_min_bytes": 60_000_000
+    },
+    "kuielab_a_drums.onnx": {
+        "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_drums.onnx",
+        "description": "Kuielab Drums Ultra-Fast MDX-Net ONNX [28.3 MB]",
+        "expected_min_bytes": 28_000_000
+    },
+    "kuielab_a_bass.onnx": {
+        "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_bass.onnx",
+        "description": "Kuielab Bass Ultra-Fast MDX-Net ONNX [28.3 MB]",
+        "expected_min_bytes": 28_000_000
+    },
+    "UVR-MDX-NET-Inst_HQ_4.onnx": {
+        "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Inst_HQ_4.onnx",
+        "description": "UVR Instrumental HQ MDX-Net ONNX [56.3 MB]",
+        "expected_min_bytes": 55_000_000
+    },
     "bs_roformer_4stem.onnx": {
         "url": "https://huggingface.co/silverdaw/bs-roformer-rhythm-onnx/resolve/main/bs_roformer_4stem_rhythm_fp16.onnx",
-        "description": "BS-RoFormer 4-Stem (Vocals, Drums, Bass, Other) FP16 ONNX [256.9 MB]",
+        "description": "BS-RoFormer 4-Stem Band-Split RoFormer FP16 ONNX [256.9 MB]",
         "expected_min_bytes": 260_000_000
     }
 }
