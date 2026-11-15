@@ -77,3 +77,22 @@ def test_realtime_audio_callback_mixing(qapp):
 
     # Clean up
     window.close()
+
+def test_all_engines_worker():
+    from openphoton_app import DemixWorker, ENGINES
+    sr = 44100
+    t = np.linspace(0, 0.5, int(sr * 0.5), endpoint=False)
+    test_audio = np.stack([np.sin(2 * np.pi * 440 * t), np.cos(2 * np.pi * 440 * t)], axis=-1).astype(np.float32)
+
+    for engine_name, info in ENGINES.items():
+        worker = DemixWorker(ort_session=None, audio=test_audio, sr=sr, engine_name=engine_name)
+        # Verify run executes and emits finished_success
+        result_stems = {}
+        def on_done(names, stems_dict, colors, elapsed):
+            result_stems.update(stems_dict)
+        worker.finished_success.connect(on_done)
+        worker.run()
+        for stem in info["stems"]:
+            assert stem in result_stems, f"Missing stem {stem} in engine {engine_name}"
+            assert len(result_stems[stem]) == len(test_audio)
+
