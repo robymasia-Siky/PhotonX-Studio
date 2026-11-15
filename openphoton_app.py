@@ -11,6 +11,11 @@ import sys
 import time
 import threading
 from pathlib import Path
+
+APP_DIR = Path(__file__).parent.resolve()
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+
 import numpy as np
 import soundfile as sf
 import sounddevice as sd
@@ -25,15 +30,21 @@ from PyQt6.QtWidgets import (
 import scipy.signal as signal
 import onnxruntime as ort
 
-from model_manager import (
-    MODEL_REGISTRY,
-    get_model_path,
-    is_model_installed,
-    download_model,
-    get_available_execution_providers
-)
+try:
+    from model_manager import (
+        MODEL_REGISTRY,
+        get_model_path,
+        is_model_installed,
+        download_model,
+        get_available_execution_providers
+    )
+except ImportError:
+    MODEL_REGISTRY = {}
+    def get_model_path(k): return APP_DIR / "models" / f"{k}.onnx"
+    def is_model_installed(k): return get_model_path(k).exists()
+    def download_model(k, cb=None): return get_model_path(k)
+    def get_available_execution_providers(): return ['CPUExecutionProvider']
 
-APP_DIR = Path(__file__).parent.resolve()
 ICON_PATH = APP_DIR / "assets" / "icon.png"
 
 def resolve_model_path():
