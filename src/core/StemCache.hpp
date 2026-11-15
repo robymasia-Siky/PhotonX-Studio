@@ -43,13 +43,17 @@ struct AudioChunkSlot {
 class StemCache {
 public:
     StemCache() {
-        for (auto& c : chunks_) c.allocate();
+        // Pre-allocate initial working chunks (~60 MB) for instant plugin instantiation
+        for (size_t i = 0; i < 8 && i < kMaxChunks; ++i) {
+            chunks_[i].allocate();
+        }
     }
 
     void clearAll() {
         for (auto& c : chunks_) {
             c.state.store(ChunkState::Empty, std::memory_order_release);
-            std::fill(c.inputAudio.begin(), c.inputAudio.end(), 0.0f);
+            if (!c.inputAudio.empty()) std::fill(c.inputAudio.begin(), c.inputAudio.end(), 0.0f);
+            if (!c.stemAudio.empty())  std::fill(c.stemAudio.begin(), c.stemAudio.end(), 0.0f);
         }
     }
 
@@ -60,6 +64,9 @@ public:
         const size_t localIdx = static_cast<size_t>(timelineSample) % kChunkSamples;
 
         auto& slot = chunks_[chunkIdx];
+        if (slot.inputAudio.empty()) {
+            slot.allocate();
+        }
         slot.inputAudio[localIdx] = left;
         slot.inputAudio[kChunkSamples + localIdx] = right;
         if (slot.state.load(std::memory_order_acquire) == ChunkState::Empty) {
@@ -75,7 +82,7 @@ public:
         if (chunkIdx >= kMaxChunks) return false;
 
         const auto& slot = chunks_[chunkIdx];
-        if (slot.state.load(std::memory_order_acquire) != ChunkState::Ready) {
+        if (slot.stemAudio.empty() || slot.state.load(std::memory_order_acquire) != ChunkState::Ready) {
             return false;
         }
 

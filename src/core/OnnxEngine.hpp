@@ -4,6 +4,10 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+
+#ifndef ORT_API_VERSION
+#define ORT_API_VERSION 17
+#endif
 #include <onnxruntime_cxx_api.h>
 
 namespace OpenPhoton {

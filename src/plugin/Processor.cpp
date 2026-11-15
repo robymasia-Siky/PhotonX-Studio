@@ -7,7 +7,45 @@
 #include <cstdlib>
 #ifdef _WIN32
 #include <windows.h>
+#include <delayimp.h>
 #include <filesystem>
+
+static FARPROC WINAPI onnxDelayHook(unsigned dliNotify, PDelayLoadInfo pdli) {
+    if (dliNotify == dliNotePreLoadLibrary) {
+        if (pdli && pdli->szDll && _stricmp(pdli->szDll, "onnxruntime.dll") == 0) {
+            HMODULE hMod = nullptr;
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   reinterpret_cast<LPCWSTR>(&onnxDelayHook),
+                                   &hMod)) {
+                wchar_t pathBuf[MAX_PATH]{};
+                GetModuleFileNameW(hMod, pathBuf, MAX_PATH);
+                auto dir = std::filesystem::path(pathBuf).parent_path();
+                SetDllDirectoryW(dir.c_str());
+
+                auto localShared = dir / L"onnxruntime_providers_shared.dll";
+                if (std::filesystem::exists(localShared)) {
+                    LoadLibraryExW(localShared.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+                }
+
+                auto localOrt = dir / L"onnxruntime.dll";
+                if (std::filesystem::exists(localOrt)) {
+                    HMODULE h = LoadLibraryExW(localOrt.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+                    if (h) return reinterpret_cast<FARPROC>(h);
+                }
+
+                auto bfxOrt = std::filesystem::path(L"C:\\Program Files\\Common Files\\BorisFX\\iZotope\\Photon\\onnxruntime.dll");
+                if (std::filesystem::exists(bfxOrt)) {
+                    HMODULE h = LoadLibraryExW(bfxOrt.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+                    if (h) return reinterpret_cast<FARPROC>(h);
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+ExternC const PfnDliHook __pfnDliNotifyHook2 = onnxDelayHook;
 #endif
 
 namespace OpenPhoton {
@@ -28,6 +66,7 @@ void preloadOnnxRuntimeFromPluginDir() {
         wchar_t pathBuf[MAX_PATH]{};
         GetModuleFileNameW(hMod, pathBuf, MAX_PATH);
         auto dir = std::filesystem::path(pathBuf).parent_path();
+        SetDllDirectoryW(dir.c_str());
         
         // Priority 1: Local bundle directory with LOAD_WITH_ALTERED_SEARCH_PATH
         auto localShared = dir / L"onnxruntime_providers_shared.dll";
@@ -159,10 +198,20 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
     if (data.numInputs == 0 || data.numOutputs == 0 || data.numSamples <= 0)
         return kResultOk;
 
+    if (!data.inputs[0].channelBuffers32 || !data.outputs[0].channelBuffers32)
+        return kResultOk;
+
     float* inL  = data.inputs[0].channelBuffers32[0];
-    float* inR  = data.inputs[0].channelBuffers32[1];
+    float* inR  = (data.inputs[0].numChannels > 1 && data.inputs[0].channelBuffers32[1]) 
+                  ? data.inputs[0].channelBuffers32[1] : inL;
     float* outL = data.outputs[0].channelBuffers32[0];
-    float* outR = data.outputs[0].channelBuffers32[1];
+    float* outR = (data.outputs[0].numChannels > 1 && data.outputs[0].channelBuffers32[1]) 
+                  ? data.outputs[0].channelBuffers32[1] : outL;
+
+    if (!inL || !outL)
+        return kResultOk;
+    if (!inR) inR = inL;
+    if (!outR) outR = outL;
 
     int64_t pos = fallbackCursor_;
     bool playing = true;
