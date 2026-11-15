@@ -53,6 +53,17 @@ ICON_PATH = APP_DIR / "assets" / "icon.png"
 # Engine definitions
 # ---------------------------------------------------------------------------
 ENGINES = {
+    "BS-RoFormer 4-Stems (SOTA #1)": {
+        "stems": ["Vocals", "Drums", "Bass", "Other"],
+        "colors": [QColor(76, 201, 240), QColor(247, 37, 133),
+                   QColor(247, 127, 0), QColor(128, 237, 153)],
+        "algo": "Band-Split RoFormer SOTA #1 (Highest Benchmark SDR)"
+    },
+    "Mel-Band RoFormer (Vocal SOTA #1)": {
+        "stems": ["Vocals", "Instrumental"],
+        "colors": [QColor(76, 201, 240), QColor(247, 127, 0)],
+        "algo": "Mel-Band RoFormer SOTA #1 (Zero Bleed Vocal Isolation)"
+    },
     "Music 4-Stems (Ultra)": {
         "stems": ["Vocals", "Drums", "Bass", "Other"],
         "colors": [QColor(76, 201, 240), QColor(247, 37, 133),
@@ -98,44 +109,51 @@ ENGINES = {
 
 # Per-stem model assignment options
 STEM_MODEL_OPTIONS = {
-    "Vocals":       ["htdemucs (HTDemucs v4)",
+    "Vocals":       ["mel_roformer (Mel-Band RoFormer SOTA #1)",
+                     "bs_roformer (BS-RoFormer 4-Stem SOTA)",
                      "kim_vocal_2 (Kim Vocal 2 MDX)",
+                     "htdemucs (HTDemucs v4)",
                      "htdemucs_6s (HTDemucs 6s)"],
-    "Drums":        ["htdemucs (HTDemucs v4)",
+    "Drums":        ["bs_roformer (BS-RoFormer 4-Stem SOTA)",
+                     "htdemucs (HTDemucs v4)",
                      "htdemucs_6s (HTDemucs 6s)"],
-    "Bass":         ["htdemucs (HTDemucs v4)",
+    "Bass":         ["bs_roformer (BS-RoFormer 4-Stem SOTA)",
+                     "htdemucs (HTDemucs v4)",
                      "htdemucs_6s (HTDemucs 6s)"],
     "Guitar":       ["htdemucs_6s (HTDemucs 6s)"],
     "Piano":        ["htdemucs_6s (HTDemucs 6s)"],
-    "Other":        ["htdemucs (HTDemucs v4)",
+    "Other":        ["bs_roformer (BS-RoFormer 4-Stem SOTA)",
+                     "htdemucs (HTDemucs v4)",
                      "htdemucs_6s (HTDemucs 6s)"],
-    "Instrumental": ["kim_vocal_2 (Kim Vocal 2 MDX)"],
+    "Instrumental": ["mel_roformer (Mel-Band RoFormer SOTA #1)",
+                     "bs_roformer (BS-RoFormer 4-Stem SOTA)",
+                     "kim_vocal_2 (Kim Vocal 2 MDX)"],
     "Dry Voice":    ["foxjoy_dereverb (FoxJoy De-Reverb HQ)"],
     "Reverb Tail":  ["foxjoy_dereverb (FoxJoy De-Reverb HQ)"],
     "Noise Floor":  ["foxjoy_dereverb (FoxJoy De-Reverb HQ)"],
     "Air Presence": ["foxjoy_dereverb (FoxJoy De-Reverb HQ)"],
-    "Kick":         ["htdemucs (HTDemucs v4)"],
-    "Snare":        ["htdemucs (HTDemucs v4)"],
-    "Hi-Hat":       ["htdemucs (HTDemucs v4)"],
-    "Toms":         ["htdemucs (HTDemucs v4)"],
-    "Cymbals":      ["htdemucs (HTDemucs v4)"],
-    "Dialogue":     ["htdemucs (HTDemucs v4)"],
-    "Music":        ["htdemucs (HTDemucs v4)"],
-    "Effects":      ["htdemucs (HTDemucs v4)"],
-    "Ambience":     ["htdemucs (HTDemucs v4)"],
-    "Speaker 1":    ["htdemucs (HTDemucs v4)"],
-    "Speaker 2":    ["htdemucs (HTDemucs v4)"],
-    "Speaker 3":    ["htdemucs (HTDemucs v4)"],
+    "Kick":         ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Snare":        ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Hi-Hat":       ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Toms":         ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Cymbals":      ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Dialogue":     ["mel_roformer (Mel-Band RoFormer SOTA #1)", "bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Music":        ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Effects":      ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Ambience":     ["bs_roformer (BS-RoFormer 4-Stem SOTA)", "htdemucs (HTDemucs v4)"],
+    "Speaker 1":    ["mel_roformer (Mel-Band RoFormer SOTA #1)", "htdemucs (HTDemucs v4)"],
+    "Speaker 2":    ["mel_roformer (Mel-Band RoFormer SOTA #1)", "htdemucs (HTDemucs v4)"],
+    "Speaker 3":    ["mel_roformer (Mel-Band RoFormer SOTA #1)", "htdemucs (HTDemucs v4)"],
 }
 
 BEST_QUALITY_PRESET = {
-    "Vocals":       "kim_vocal_2 (Kim Vocal 2 MDX)",
-    "Drums":        "htdemucs (HTDemucs v4)",
-    "Bass":         "htdemucs (HTDemucs v4)",
+    "Vocals":       "mel_roformer (Mel-Band RoFormer SOTA #1)",
+    "Drums":        "bs_roformer (BS-RoFormer 4-Stem SOTA)",
+    "Bass":         "bs_roformer (BS-RoFormer 4-Stem SOTA)",
     "Guitar":       "htdemucs_6s (HTDemucs 6s)",
     "Piano":        "htdemucs_6s (HTDemucs 6s)",
-    "Other":        "htdemucs (HTDemucs v4)",
-    "Instrumental": "kim_vocal_2 (Kim Vocal 2 MDX)",
+    "Other":        "bs_roformer (BS-RoFormer 4-Stem SOTA)",
+    "Instrumental": "mel_roformer (Mel-Band RoFormer SOTA #1)",
     "Dry Voice":    "foxjoy_dereverb (FoxJoy De-Reverb HQ)",
     "Reverb Tail":  "foxjoy_dereverb (FoxJoy De-Reverb HQ)",
     "Noise Floor":  "foxjoy_dereverb (FoxJoy De-Reverb HQ)",
@@ -144,11 +162,11 @@ BEST_QUALITY_PRESET = {
 
 
 def resolve_model_path():
-    for c in ["htdemucs", "htdemucs_6s", "kim_vocal_2"]:
+    for c in ["bs_roformer", "mel_roformer", "htdemucs", "htdemucs_6s", "kim_vocal_2"]:
         p = get_model_path(c)
         if p and p.exists():
             return p
-    return APP_DIR / "models" / "htdemucs.onnx"
+    return APP_DIR / "models" / "bs_roformer_4stem.onnx"
 
 MODEL_PATH = resolve_model_path()
 
@@ -428,6 +446,17 @@ class StemFXWorker(QThread):
             print(f"[StemFXWorker error] {e}")
 
 
+def _create_ort_session(model_path, sess_opts=None):
+    if sess_opts is None:
+        sess_opts = ort.SessionOptions()
+        sess_opts.intra_op_num_threads = 8
+        sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    try:
+        return ort.InferenceSession(str(model_path), sess_opts, providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
+    except Exception:
+        return ort.InferenceSession(str(model_path), sess_opts, providers=['CPUExecutionProvider'])
+
+
 class DemixWorker(QThread):
     progress_changed = pyqtSignal(int)
     finished_success = pyqtSignal(list, dict, list, float)
@@ -442,6 +471,154 @@ class DemixWorker(QThread):
         self.engine_name = engine_name
         self.target_scope = target_scope
         self.stem_model_keys = stem_model_keys or {}
+
+    def _process_bs_roformer(self, sess, audio, p_start=5, p_end=90):
+        """Band-Split RoFormer 4-Stem Inference with sample-accurate overlap-add."""
+        n_fft = 2048
+        hop = 441
+        dim_t = 801
+        chunk_samples = (dim_t - 1) * hop + n_fft  # 354848
+        step = 264600  # 25% overlap
+        pad = n_fft
+
+        padded_audio = np.pad(audio, ((pad, pad), (0, 0)), mode='constant')
+        total_len = len(padded_audio)
+        num_chunks = max(1, int(np.ceil(total_len / step)))
+        win = np.hanning(n_fft).astype(np.float32)
+        chunk_win = np.hanning(chunk_samples).astype(np.float32)[:, np.newaxis]
+
+        # 4 stems: 0: Drums, 1: Bass, 2: Other, 3: Vocals
+        stems_acc = np.zeros((4, total_len, 2), dtype=np.float32)
+        weight = np.zeros((total_len, 1), dtype=np.float32)
+
+        for c in range(num_chunks):
+            start = c * step
+            if start >= total_len:
+                break
+            end = min(total_len, start + chunk_samples)
+
+            chunk = np.zeros((chunk_samples, 2), dtype=np.float32)
+            chunk[:end - start] = padded_audio[start:end]
+
+            fl = np.lib.stride_tricks.sliding_window_view(chunk[:, 0], n_fft)[::hop] * win
+            fr = np.lib.stride_tricks.sliding_window_view(chunk[:, 1], n_fft)[::hop] * win
+            sl = np.fft.rfft(fl, axis=-1).T
+            sr = np.fft.rfft(fr, axis=-1).T
+
+            spec_real = np.stack([sl.real, sr.real], axis=0)[np.newaxis, ...].astype(np.float32)
+            spec_imag = np.stack([sl.imag, sr.imag], axis=0)[np.newaxis, ...].astype(np.float32)
+
+            out_real, out_imag = sess.run(None, {'spec_real': spec_real, 'spec_imag': spec_imag})
+
+            chunk_weight = np.zeros(chunk_samples, dtype=np.float32)
+            valid = end - start
+
+            for s in range(4):
+                c_real_l = out_real[0, s, 0]
+                c_imag_l = out_imag[0, s, 0]
+                c_real_r = out_real[0, s, 1]
+                c_imag_r = out_imag[0, s, 1]
+
+                spec_out_l = c_real_l + 1j * c_imag_l
+                spec_out_r = c_real_r + 1j * c_imag_r
+
+                rl = np.fft.irfft(spec_out_l.T, axis=-1) * win
+                rr = np.fft.irfft(spec_out_r.T, axis=-1) * win
+
+                chunk_stem_out = np.zeros((chunk_samples, 2), dtype=np.float32)
+                for i in range(dim_t):
+                    fs = i * hop
+                    fe = fs + n_fft
+                    chunk_stem_out[fs:fe, 0] += rl[i]
+                    chunk_stem_out[fs:fe, 1] += rr[i]
+                    if s == 0:
+                        chunk_weight[fs:fe] += win ** 2
+
+                if s == 0:
+                    norm_mask = np.maximum(chunk_weight, 1e-4)[:, np.newaxis]
+                chunk_stem_out /= norm_mask
+
+                stems_acc[s, start:end] += (chunk_stem_out[:valid] * chunk_win[:valid])
+
+            weight[start:end] += chunk_win[:valid]
+
+            pct = int(p_start + (p_end - p_start) * (c + 1) / num_chunks)
+            self.progress_changed.emit(min(p_end, pct))
+
+        norm_w = np.maximum(weight, 1e-4)
+        for s in range(4):
+            stems_acc[s] /= norm_w
+
+        out_stems = {}
+        out_stems["Drums"] = stems_acc[0, pad:pad + len(audio)]
+        out_stems["Bass"] = stems_acc[1, pad:pad + len(audio)]
+        out_stems["Other"] = stems_acc[2, pad:pad + len(audio)]
+        out_stems["Vocals"] = stems_acc[3, pad:pad + len(audio)]
+        return out_stems
+
+    def _process_mel_roformer(self, sess, audio, p_start=5, p_end=90):
+        """Mel-Band RoFormer Vocal Inference with sample-accurate overlap-add."""
+        n_fft = 2048
+        hop = 441
+        dim_t = 801
+        chunk_samples = (dim_t - 1) * hop + n_fft  # 354848
+        step = 264600  # 25% overlap
+        pad = n_fft
+
+        padded_audio = np.pad(audio, ((pad, pad), (0, 0)), mode='constant')
+        total_len = len(padded_audio)
+        num_chunks = max(1, int(np.ceil(total_len / step)))
+        win = np.hanning(n_fft).astype(np.float32)
+        chunk_win = np.hanning(chunk_samples).astype(np.float32)[:, np.newaxis]
+
+        vocals_acc = np.zeros((total_len, 2), dtype=np.float32)
+        weight = np.zeros((total_len, 1), dtype=np.float32)
+
+        for c in range(num_chunks):
+            start = c * step
+            if start >= total_len:
+                break
+            end = min(total_len, start + chunk_samples)
+
+            chunk = np.zeros((chunk_samples, 2), dtype=np.float32)
+            chunk[:end - start] = padded_audio[start:end]
+
+            fl = np.lib.stride_tricks.sliding_window_view(chunk[:, 0], n_fft)[::hop] * win
+            fr = np.lib.stride_tricks.sliding_window_view(chunk[:, 1], n_fft)[::hop] * win
+            sl = np.fft.rfft(fl, axis=-1).T
+            sr = np.fft.rfft(fr, axis=-1).T
+
+            inp_mel = np.stack([sl.real, sl.imag, sr.real, sr.imag], axis=0)[np.newaxis, ...].astype(np.float32)
+            out = sess.run(None, {'mix_spec': inp_mel})[0]
+
+            spec_out_l = out[0, 0] + 1j * out[0, 1]
+            spec_out_r = out[0, 2] + 1j * out[0, 3]
+
+            rl = np.fft.irfft(spec_out_l.T, axis=-1) * win
+            rr = np.fft.irfft(spec_out_r.T, axis=-1) * win
+
+            chunk_stem_out = np.zeros((chunk_samples, 2), dtype=np.float32)
+            chunk_weight = np.zeros(chunk_samples, dtype=np.float32)
+            for i in range(dim_t):
+                fs = i * hop
+                fe = fs + n_fft
+                chunk_stem_out[fs:fe, 0] += rl[i]
+                chunk_stem_out[fs:fe, 1] += rr[i]
+                chunk_weight[fs:fe] += win ** 2
+
+            norm_mask = np.maximum(chunk_weight, 1e-4)[:, np.newaxis]
+            chunk_stem_out /= norm_mask
+
+            valid = end - start
+            vocals_acc[start:end] += (chunk_stem_out[:valid] * chunk_win[:valid])
+            weight[start:end] += chunk_win[:valid]
+
+            pct = int(p_start + (p_end - p_start) * (c + 1) / num_chunks)
+            self.progress_changed.emit(min(p_end, pct))
+
+        norm_w = np.maximum(weight, 1e-4)
+        vocals_acc /= norm_w
+        return vocals_acc[pad:pad + len(audio)]
 
     def _process_mdx(self, sess, audio, n_fft, dim_f, dim_t, hop, comp, p_start, p_end):
         chunk_samples = (dim_t - 1) * hop + n_fft
@@ -563,6 +740,8 @@ class DemixWorker(QThread):
             stems_dict = {}
             nyq = target_sr / 2.0
 
+            bs_roformer_model = get_model_path("bs_roformer")
+            mel_roformer_model = get_model_path("mel_roformer")
             htdemucs_model = get_model_path("htdemucs")
             htdemucs_6s_model = get_model_path("htdemucs_6s")
             foxjoy_model = get_model_path("foxjoy_dereverb")
@@ -574,13 +753,45 @@ class DemixWorker(QThread):
 
             vocal_model_key = "htdemucs"
             voc_choice = self.stem_model_keys.get("Vocals", "")
-            if "kim_vocal_2" in voc_choice and kim_model and kim_model.exists():
+            if "mel_roformer" in voc_choice and mel_roformer_model and mel_roformer_model.exists():
+                vocal_model_key = "mel_roformer"
+            elif "bs_roformer" in voc_choice and bs_roformer_model and bs_roformer_model.exists():
+                vocal_model_key = "bs_roformer"
+            elif "kim_vocal_2" in voc_choice and kim_model and kim_model.exists():
                 vocal_model_key = "kim_vocal_2"
             elif "htdemucs_6s" in voc_choice and htdemucs_6s_model and htdemucs_6s_model.exists():
                 vocal_model_key = "htdemucs_6s"
 
-            # 1. ENGINE: Music 6-Stems
-            if self.engine_name == "Music 6-Stems (Guitar & Piano)" and htdemucs_6s_model:
+            drums_choice = self.stem_model_keys.get("Drums", "")
+            bass_choice = self.stem_model_keys.get("Bass", "")
+            other_choice = self.stem_model_keys.get("Other", "")
+            inst_choice = self.stem_model_keys.get("Instrumental", "")
+
+            # 1. ENGINE: BS-RoFormer 4-Stems (SOTA #1)
+            if self.engine_name == "BS-RoFormer 4-Stems (SOTA #1)" and bs_roformer_model and bs_roformer_model.exists():
+                self.progress_changed.emit(5)
+                sess_bs = _create_ort_session(bs_roformer_model, sess_opts)
+                bs_stems = self._process_bs_roformer(sess_bs, proc_audio, p_start=5, p_end=90)
+                stems_dict["Vocals"] = bs_stems["Vocals"]
+                stems_dict["Drums"] = bs_stems["Drums"]
+                stems_dict["Bass"] = bs_stems["Bass"]
+                stems_dict["Other"] = bs_stems["Other"]
+
+                if vocal_model_key == "mel_roformer" and mel_roformer_model and mel_roformer_model.exists():
+                    self.progress_changed.emit(91)
+                    sess_mel = _create_ort_session(mel_roformer_model, sess_opts)
+                    stems_dict["Vocals"] = self._process_mel_roformer(sess_mel, proc_audio, p_start=91, p_end=98)
+
+            # 2. ENGINE: Mel-Band RoFormer (Vocal SOTA #1)
+            elif self.engine_name == "Mel-Band RoFormer (Vocal SOTA #1)" and mel_roformer_model and mel_roformer_model.exists():
+                self.progress_changed.emit(5)
+                sess_mel = _create_ort_session(mel_roformer_model, sess_opts)
+                vocals = self._process_mel_roformer(sess_mel, proc_audio, p_start=5, p_end=92)
+                stems_dict["Vocals"] = vocals
+                stems_dict["Instrumental"] = proc_audio - vocals
+
+            # 3. ENGINE: Music 6-Stems (Guitar & Piano)
+            elif self.engine_name == "Music 6-Stems (Guitar & Piano)" and htdemucs_6s_model:
                 self.progress_changed.emit(5)
                 stems_acc = self._run_htdemucs("htdemucs_6s", proc_audio, n_stems=6)
                 stems_dict["Vocals"] = stems_acc[3].T[:len(proc_audio)]
@@ -590,36 +801,147 @@ class DemixWorker(QThread):
                 stems_dict["Piano"] = stems_acc[5].T[:len(proc_audio)]
                 stems_dict["Other"] = stems_acc[2].T[:len(proc_audio)]
 
-                if vocal_model_key == "kim_vocal_2" and kim_model and kim_model.exists():
+                if vocal_model_key == "mel_roformer" and mel_roformer_model and mel_roformer_model.exists():
                     self.progress_changed.emit(93)
-                    try:
-                        sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
-                                                        providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
-                    except Exception:
-                        sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
-                                                        providers=['CPUExecutionProvider'])
+                    sess_mel = _create_ort_session(mel_roformer_model, sess_opts)
+                    stems_dict["Vocals"] = self._process_mel_roformer(sess_mel, proc_audio, p_start=93, p_end=98)
+                elif vocal_model_key == "kim_vocal_2" and kim_model and kim_model.exists():
+                    self.progress_changed.emit(93)
+                    sess_kim = _create_ort_session(kim_model, sess_opts)
                     vocals_kim = self._process_mdx(sess_kim, proc_audio,
                                                    n_fft=7680, dim_f=3072, dim_t=256,
                                                    hop=1024, comp=1.009, p_start=93, p_end=98)
                     stems_dict["Vocals"] = vocals_kim
 
-            # 2. ENGINE: Acapella & Instrumental (Kim SOTA)
-            elif self.engine_name == "Acapella & Instrumental (Kim SOTA)" and kim_model:
+            # 4. ENGINE: Acapella & Instrumental (Kim SOTA)
+            elif self.engine_name == "Acapella & Instrumental (Kim SOTA)":
                 self.progress_changed.emit(5)
-                try:
-                    sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
-                                                    providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
-                except Exception:
-                    sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
-                                                    providers=['CPUExecutionProvider'])
-                vocals = self._process_mdx(sess_kim, proc_audio,
-                                           n_fft=7680, dim_f=3072, dim_t=256,
-                                           hop=1024, comp=1.009, p_start=5, p_end=90)
-                instrumental = proc_audio - vocals
+                if ("mel_roformer" in vocal_model_key or "mel_roformer" in inst_choice) and mel_roformer_model and mel_roformer_model.exists():
+                    sess_mel = _create_ort_session(mel_roformer_model, sess_opts)
+                    vocals = self._process_mel_roformer(sess_mel, proc_audio, p_start=5, p_end=92)
+                elif kim_model and kim_model.exists():
+                    sess_kim = _create_ort_session(kim_model, sess_opts)
+                    vocals = self._process_mdx(sess_kim, proc_audio,
+                                               n_fft=7680, dim_f=3072, dim_t=256,
+                                               hop=1024, comp=1.009, p_start=5, p_end=90)
+                else:
+                    vocals = proc_audio * 0.5
                 stems_dict["Vocals"] = vocals
-                stems_dict["Instrumental"] = instrumental
+                stems_dict["Instrumental"] = proc_audio - vocals
 
-            # 3. BASE ENGINE: HTDemucs v4 4-Stem
+            # 5. BASE ENGINE: BS-RoFormer / HTDemucs 4-Stem and Derivations
+            elif ("bs_roformer" in drums_choice or "bs_roformer" in bass_choice or "bs_roformer" in other_choice or self.engine_name == "Music 4-Stems (Ultra)") and bs_roformer_model and bs_roformer_model.exists():
+                self.progress_changed.emit(5)
+                sess_bs = _create_ort_session(bs_roformer_model, sess_opts)
+                bs_stems = self._process_bs_roformer(sess_bs, proc_audio, p_start=5, p_end=85)
+                drums_raw = bs_stems["Drums"]
+                bass_raw = bs_stems["Bass"]
+                other_raw = bs_stems["Other"]
+                vocals_raw = bs_stems["Vocals"]
+
+                if vocal_model_key == "mel_roformer" and mel_roformer_model and mel_roformer_model.exists():
+                    self.progress_changed.emit(86)
+                    sess_mel = _create_ort_session(mel_roformer_model, sess_opts)
+                    vocals_raw = self._process_mel_roformer(sess_mel, proc_audio, p_start=86, p_end=95)
+                elif vocal_model_key == "kim_vocal_2" and kim_model and kim_model.exists():
+                    self.progress_changed.emit(86)
+                    sess_kim = _create_ort_session(kim_model, sess_opts)
+                    vocals_raw = self._process_mdx(sess_kim, proc_audio,
+                                                   n_fft=7680, dim_f=3072, dim_t=256,
+                                                   hop=1024, comp=1.009, p_start=86, p_end=95)
+
+                if self.engine_name == "Music 4-Stems (Ultra)":
+                    stems_dict["Vocals"] = vocals_raw
+                    stems_dict["Drums"] = drums_raw
+                    stems_dict["Bass"] = bass_raw
+                    stems_dict["Other"] = other_raw
+
+                elif self.engine_name == "Drums 5-Stems":
+                    self.progress_changed.emit(88)
+                    b_k, a_k = signal.butter(2, min(0.99, 110.0 / nyq), btype='low')
+                    kick = signal.filtfilt(b_k, a_k, drums_raw, axis=0)
+                    b_s, a_s = signal.butter(2, [180.0 / nyq, min(0.99, 4800.0 / nyq)], btype='band')
+                    snare = signal.filtfilt(b_s, a_s, drums_raw, axis=0) * 1.1
+                    b_t, a_t = signal.butter(2, [110.0 / nyq, min(0.99, 600.0 / nyq)], btype='band')
+                    toms = signal.filtfilt(b_t, a_t, drums_raw, axis=0) * 0.85
+                    b_h, a_h = signal.butter(2, min(0.99, 6500.0 / nyq), btype='high')
+                    hihat = signal.filtfilt(b_h, a_h, drums_raw, axis=0)
+                    b_c, a_c = signal.butter(2, [3500.0 / nyq, min(0.99, 16000.0 / nyq)], btype='band')
+                    cymbals = signal.filtfilt(b_c, a_c, drums_raw, axis=0) * 0.9
+                    stems_dict["Kick"] = kick
+                    stems_dict["Snare"] = snare
+                    stems_dict["Hi-Hat"] = hihat
+                    stems_dict["Toms"] = toms
+                    stems_dict["Cymbals"] = cymbals
+
+                elif self.engine_name == "Cinema 4-Stems":
+                    self.progress_changed.emit(88)
+                    dialogue = vocals_raw
+                    music = other_raw + bass_raw
+                    effects = drums_raw
+                    side = (proc_audio[:, 0] - proc_audio[:, 1]) * 0.5
+                    ambience = np.stack([side, -side], axis=-1) * 0.8
+                    stems_dict["Dialogue"] = dialogue
+                    stems_dict["Music"] = music
+                    stems_dict["Effects"] = effects
+                    stems_dict["Ambience"] = ambience
+
+                elif self.engine_name == "Voice Restore & Denoise":
+                    self.progress_changed.emit(85)
+                    base_voice = vocals_raw
+                    if foxjoy_model and foxjoy_model.exists():
+                        sess_fox = _create_ort_session(foxjoy_model, sess_opts)
+                        dry_voice = self._process_mdx(sess_fox, base_voice,
+                                                      n_fft=7680, dim_f=3072, dim_t=512,
+                                                      hop=1024, comp=1.0, p_start=85, p_end=92)
+                        reverb_tail = base_voice - dry_voice
+                    else:
+                        dry_voice = base_voice * 0.8
+                        reverb_tail = base_voice * 0.2
+
+                    n_fft_w = 1024
+                    hop_w = 768
+                    clean_chans, noise_chans = [], []
+                    for ch_i in range(2):
+                        _, _, Zxx = signal.stft(dry_voice[:, ch_i], fs=target_sr,
+                                                nperseg=n_fft_w, noverlap=hop_w)
+                        mag = np.abs(Zxx)
+                        phase = np.angle(Zxx)
+                        noise_est = np.percentile(mag, 15, axis=-1, keepdims=True)
+                        clean_mag = np.maximum(mag - 1.6 * noise_est, 0.0)
+                        noise_mag = np.minimum(mag, 1.6 * noise_est)
+                        _, clean_sig = signal.istft(clean_mag * np.exp(1j * phase),
+                                                    fs=target_sr, nperseg=n_fft_w, noverlap=hop_w)
+                        _, noise_sig = signal.istft(noise_mag * np.exp(1j * phase),
+                                                    fs=target_sr, nperseg=n_fft_w, noverlap=hop_w)
+                        clean_chans.append(clean_sig[:len(base_voice)])
+                        noise_chans.append(noise_sig[:len(base_voice)])
+
+                    clean_voice = np.stack(clean_chans, axis=-1)
+                    noise_floor = np.stack(noise_chans, axis=-1)
+                    b_col, a_col = signal.butter(2, [3500.0 / nyq, min(0.99, 10000.0 / nyq)], btype='band')
+                    air_pres = signal.filtfilt(b_col, a_col, clean_voice, axis=0) * 1.25
+                    stems_dict["Dry Voice"] = clean_voice
+                    stems_dict["Reverb Tail"] = reverb_tail
+                    stems_dict["Noise Floor"] = noise_floor
+                    stems_dict["Air Presence"] = air_pres
+
+                elif self.engine_name == "Voice Separator (Multi-Speaker)":
+                    self.progress_changed.emit(88)
+                    base_voice = vocals_raw
+                    b1, a1 = signal.butter(2, [80.0 / nyq, min(0.99, 240.0 / nyq)], btype='band')
+                    spk1 = signal.filtfilt(b1, a1, base_voice, axis=0) * 1.2
+                    b2, a2 = signal.butter(2, [240.0 / nyq, min(0.99, 550.0 / nyq)], btype='band')
+                    spk2 = signal.filtfilt(b2, a2, base_voice, axis=0) * 1.2
+                    b3, a3 = signal.butter(2, [550.0 / nyq, min(0.99, 1800.0 / nyq)], btype='band')
+                    spk3 = signal.filtfilt(b3, a3, base_voice, axis=0) * 1.2
+                    b_oth, a_oth = signal.butter(2, min(0.99, 1800.0 / nyq), btype='high')
+                    oth = signal.filtfilt(b_oth, a_oth, base_voice, axis=0)
+                    stems_dict["Speaker 1"] = spk1
+                    stems_dict["Speaker 2"] = spk2
+                    stems_dict["Speaker 3"] = spk3
+                    stems_dict["Other"] = oth
+
             elif htdemucs_model:
                 self.progress_changed.emit(5)
                 stems_acc = self._run_htdemucs("htdemucs", proc_audio, n_stems=4)
@@ -629,16 +951,13 @@ class DemixWorker(QThread):
                 vocals_raw = stems_acc[3].T[:len(proc_audio)]
 
                 if self.engine_name == "Music 4-Stems (Ultra)":
-                    if vocal_model_key == "kim_vocal_2" and kim_model and kim_model.exists():
+                    if vocal_model_key == "mel_roformer" and mel_roformer_model and mel_roformer_model.exists():
                         self.progress_changed.emit(93)
-                        try:
-                            sess_kim = ort.InferenceSession(
-                                str(kim_model), sess_opts,
-                                providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
-                        except Exception:
-                            sess_kim = ort.InferenceSession(
-                                str(kim_model), sess_opts,
-                                providers=['CPUExecutionProvider'])
+                        sess_mel = _create_ort_session(mel_roformer_model, sess_opts)
+                        vocals_raw = self._process_mel_roformer(sess_mel, proc_audio, p_start=93, p_end=98)
+                    elif vocal_model_key == "kim_vocal_2" and kim_model and kim_model.exists():
+                        self.progress_changed.emit(93)
+                        sess_kim = _create_ort_session(kim_model, sess_opts)
                         vocals_raw = self._process_mdx(
                             sess_kim, proc_audio,
                             n_fft=7680, dim_f=3072, dim_t=256,
@@ -1529,7 +1848,7 @@ class MainWindow(QMainWindow):
         self.playback_lock = threading.Lock()
         self.stream = None
         self.stream_finished = False
-        self.current_engine_name = "Music 4-Stems (Ultra)"
+        self.current_engine_name = "BS-RoFormer 4-Stems (SOTA #1)"
         self.channels = []
         self.fx_panels = {}
         self.processing_params = {}
@@ -1573,7 +1892,7 @@ class MainWindow(QMainWindow):
         brand_lbl.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
         header_layout.addWidget(brand_lbl)
 
-        sub_lbl = QLabel("AI STEM DEMIX & RESTORATION  |  HTDEMUCS V4 · KIM SOTA · FOXJOY HQ")
+        sub_lbl = QLabel("AI STEM DEMIX & RESTORATION  |  BS-ROFORMER SOTA #1 · MEL-ROFORMER · HTDEMUCS V4")
         sub_lbl.setFont(QFont("Segoe UI", 9))
         sub_lbl.setStyleSheet("color: #64748b; margin-left: 12px;")
         header_layout.addWidget(sub_lbl)

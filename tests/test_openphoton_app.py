@@ -17,11 +17,19 @@ import numpy as np
 
 def test_engines_definition():
     from openphoton_app import ENGINES
+    assert "BS-RoFormer 4-Stems (SOTA #1)" in ENGINES
+    assert "Mel-Band RoFormer (Vocal SOTA #1)" in ENGINES
     assert "Music 4-Stems (Ultra)" in ENGINES
     assert "Drums 5-Stems" in ENGINES
     assert "Cinema 4-Stems" in ENGINES
     assert "Voice Restore & Denoise" in ENGINES
     assert "Voice Separator (Multi-Speaker)" in ENGINES
+
+    bs_stems = ENGINES["BS-RoFormer 4-Stems (SOTA #1)"]["stems"]
+    assert bs_stems == ["Vocals", "Drums", "Bass", "Other"]
+
+    mel_stems = ENGINES["Mel-Band RoFormer (Vocal SOTA #1)"]["stems"]
+    assert mel_stems == ["Vocals", "Instrumental"]
 
     music_stems = ENGINES["Music 4-Stems (Ultra)"]["stems"]
     assert music_stems == ["Vocals", "Drums", "Bass", "Other"]
@@ -49,7 +57,7 @@ def test_app_window_creation(qapp):
     from openphoton_app import MainWindow
     window = MainWindow()
     assert "PhotonX" in window.windowTitle()
-    assert window.current_engine_name == "Music 4-Stems (Ultra)"
+    assert window.current_engine_name == "BS-RoFormer 4-Stems (SOTA #1)"
     assert len(window.channels) == 4
     window.close()
 
@@ -296,4 +304,110 @@ def test_stem_fx_worker():
     worker.run()
     assert "Vocals" in result
     assert result["Vocals"].shape == raw.shape
+
+
+# ---------------------------------------------------------------------------
+# RoFormer SOTA Integration Tests
+# ---------------------------------------------------------------------------
+
+def test_roformer_models_registered_and_options():
+    from model_manager import MODEL_REGISTRY
+    from openphoton_app import STEM_MODEL_OPTIONS, BEST_QUALITY_PRESET
+
+    assert "bs_roformer" in MODEL_REGISTRY
+    assert "mel_roformer" in MODEL_REGISTRY
+
+    # Check Vocals has RoFormer options
+    assert any("mel_roformer" in opt for opt in STEM_MODEL_OPTIONS["Vocals"])
+    assert any("bs_roformer" in opt for opt in STEM_MODEL_OPTIONS["Vocals"])
+
+    # Check Drums, Bass, Other have BS-RoFormer
+    assert any("bs_roformer" in opt for opt in STEM_MODEL_OPTIONS["Drums"])
+    assert any("bs_roformer" in opt for opt in STEM_MODEL_OPTIONS["Bass"])
+    assert any("bs_roformer" in opt for opt in STEM_MODEL_OPTIONS["Other"])
+
+    # Check Best Quality preset leverages RoFormer
+    assert "mel_roformer" in BEST_QUALITY_PRESET["Vocals"]
+    assert "bs_roformer" in BEST_QUALITY_PRESET["Drums"]
+    assert "bs_roformer" in BEST_QUALITY_PRESET["Bass"]
+    assert "bs_roformer" in BEST_QUALITY_PRESET["Other"]
+    assert "mel_roformer" in BEST_QUALITY_PRESET["Instrumental"]
+
+
+def test_apply_best_quality_preset_ui(qapp, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: None)
+    from openphoton_app import MainWindow
+    window = MainWindow()
+    window._apply_best_quality_preset()
+
+    for ch in window.channels:
+        model_name = ch.get_selected_model()
+        if ch.stem_name in ["Drums", "Bass", "Other"]:
+            assert "bs_roformer" in model_name
+        elif ch.stem_name == "Vocals":
+            assert "mel_roformer" in model_name
+
+    window.close()
+
+
+def test_roformer_stft_istft_reconstruction_fidelity():
+    """Verify that RoFormer STFT/iSTFT framing has machine-epsilon reconstruction error."""
+    chunk_samples = 354848
+    hop = 441
+    n_fft = 2048
+    win = np.hanning(n_fft).astype(np.float32)
+
+    sr = 44100
+    t = np.linspace(0, 10, sr * 10, endpoint=False)
+    orig_sig = np.stack([np.sin(2 * np.pi * 440 * t), np.cos(2 * np.pi * 880 * t)], axis=-1).astype(np.float32)
+
+    pad = n_fft
+    sig = np.pad(orig_sig, ((pad, pad), (0, 0)), mode='constant')
+
+    step = 264600  # 25% overlap
+    chunk_win = np.hanning(chunk_samples).astype(np.float32)[:, np.newaxis]
+
+    out_sig = np.zeros_like(sig)
+    weight = np.zeros((len(sig), 1), dtype=np.float32)
+
+    num_chunks = max(1, int(np.ceil(len(sig) / step)))
+
+    for c in range(num_chunks):
+        start = c * step
+        if start >= len(sig):
+            break
+        end = min(len(sig), start + chunk_samples)
+        chunk = np.zeros((chunk_samples, 2), dtype=np.float32)
+        chunk[:end - start] = sig[start:end]
+
+        fl = np.lib.stride_tricks.sliding_window_view(chunk[:, 0], n_fft)[::hop] * win
+        fr = np.lib.stride_tricks.sliding_window_view(chunk[:, 1], n_fft)[::hop] * win
+        sl = np.fft.rfft(fl, axis=-1).T
+        sr_spec = np.fft.rfft(fr, axis=-1).T
+
+        rl = np.fft.irfft(sl.T, axis=-1) * win
+        rr = np.fft.irfft(sr_spec.T, axis=-1) * win
+
+        chunk_out = np.zeros((chunk_samples, 2), dtype=np.float32)
+        chunk_weight = np.zeros(chunk_samples, dtype=np.float32)
+        for i in range(801):
+            fs = i * hop
+            fe = fs + n_fft
+            chunk_out[fs:fe, 0] += rl[i]
+            chunk_out[fs:fe, 1] += rr[i]
+            chunk_weight[fs:fe] += win ** 2
+
+        mask = np.maximum(chunk_weight, 1e-4)[:, np.newaxis]
+        chunk_out /= mask
+
+        valid = end - start
+        out_sig[start:end] += (chunk_out[:valid] * chunk_win[:valid])
+        weight[start:end] += chunk_win[:valid]
+
+    out_sig /= np.maximum(weight, 1e-4)
+    final_sig = out_sig[pad:pad + len(orig_sig)]
+
+    max_err = np.max(np.abs(orig_sig - final_sig))
+    assert max_err < 1e-5, f"Reconstruction error too high: {max_err}"
 

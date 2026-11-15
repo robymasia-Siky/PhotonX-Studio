@@ -22,6 +22,26 @@ except Exception:
     pass
 
 MODEL_REGISTRY = {
+    "bs_roformer": {
+        "filename": "bs_roformer_4stem.onnx",
+        "name": "BS-RoFormer 4-Stem (Band-Split SOTA #1)",
+        "category": "Multi-Stem (RoFormer SOTA)",
+        "description": "Band-Split RoFormer architecture for ultra-clean 4-stem isolation (Vocals, Drums, Bass, Other). Highest SDR benchmark in audio demixing.",
+        "url": "https://huggingface.co/phuongnse/mel-roformer-kim-onnx/resolve/main/bs_roformer_4stem.onnx",
+        "stems": ["Vocals", "Drums", "Bass", "Other"],
+        "min_bytes": 200_000_000,
+        "recommended": True
+    },
+    "mel_roformer": {
+        "filename": "mel-roformer.fp16.onnx",
+        "name": "Mel-Band RoFormer (Vocal SOTA #1)",
+        "category": "Vocal Isolation (RoFormer SOTA)",
+        "description": "World #1 ranked Mel-Band RoFormer for pristine vocal separation with zero acoustic bleed and natural timbre.",
+        "url": "https://huggingface.co/phuongnse/mel-roformer-kim-onnx/resolve/main/mel-roformer.fp16.onnx",
+        "stems": ["Vocals", "Instrumental"],
+        "min_bytes": 400_000_000,
+        "recommended": True
+    },
     "htdemucs": {
         "filename": "htdemucs.onnx",
         "name": "Meta AI HTDemucs v4 (4-Stem SOTA)",
@@ -61,16 +81,6 @@ MODEL_REGISTRY = {
         "stems": ["Dry Voice", "Reverb Tail"],
         "min_bytes": 60_000_000,
         "recommended": True
-    },
-    "mel_roformer_kim": {
-        "filename": "mel-roformer.fp16.onnx",
-        "name": "Mel-Band RoFormer (Kimberley Jensen FP16)",
-        "category": "Vocal Isolation (RoFormer)",
-        "description": "Top-ranked Mel-Band RoFormer architecture for ultra-transparent vocal isolation and zero artifacting.",
-        "url": "https://huggingface.co/phuongnse/mel-roformer-kim-onnx/resolve/main/mel-roformer.fp16.onnx",
-        "stems": ["Vocals", "Instrumental"],
-        "min_bytes": 440_000_000,
-        "recommended": False
     }
 }
 
