@@ -14,14 +14,14 @@ import numpy as np
 import soundfile as sf
 import sounddevice as sd
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QIcon
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSlider, QFileDialog, QTabWidget,
     QProgressBar, QFrame, QMessageBox
 )
-
+import scipy.signal as signal
 import onnxruntime as ort
 
 APP_DIR = Path(__file__).parent.resolve()
@@ -228,6 +228,94 @@ class StemChannel(QFrame):
         self.solo_toggled.emit(self.index, self.is_solo)
 
 
+class DemixWorker(QThread):
+    progress_changed = pyqtSignal(int)
+    finished_success = pyqtSignal(list, dict, list, float)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, ort_session, audio, sr, engine_name):
+        super().__init__()
+        self.ort_session = ort_session
+        self.audio = audio
+        self.sr = sr
+        self.engine_name = engine_name
+
+    def run(self):
+        try:
+            t0 = time.time()
+            engine_info = ENGINES[self.engine_name]
+            stems_names = engine_info["stems"]
+            colors = engine_info["colors"]
+            audio = self.audio
+
+            n_fft = 2048
+            hop = 512
+            n_frames = 801
+            chunk_samples = (n_frames - 1) * hop + n_fft  # exactly 411,648 samples
+            
+            stems_buffers = [np.zeros_like(audio) for _ in range(len(stems_names))]
+
+            if self.ort_session and self.engine_name == "Music 4-Stems (Ultra)":
+                step = chunk_samples - n_fft
+                num_chunks = int(np.ceil(len(audio) / step))
+                if num_chunks == 0:
+                    num_chunks = 1
+                
+                win = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(n_fft) / n_fft)).astype(np.float32)
+
+                for c in range(num_chunks):
+                    start = c * step
+                    if start >= len(audio):
+                        break
+                    end = min(len(audio), start + chunk_samples)
+
+                    chunk = np.zeros((chunk_samples, 2), dtype=np.float32)
+                    chunk[:end - start] = audio[start:end]
+
+                    # Vectorized forward STFT for Left & Right channels
+                    spec_l = np.array([np.fft.rfft(chunk[i:i+n_fft, 0] * win) for i in range(0, chunk_samples - n_fft + 1, hop)]).T
+                    spec_r = np.array([np.fft.rfft(chunk[i:i+n_fft, 1] * win) for i in range(0, chunk_samples - n_fft + 1, hop)]).T
+
+                    real_in = np.stack([spec_l.real, spec_r.real], axis=0)[np.newaxis, ...].astype(np.float32)
+                    imag_in = np.stack([spec_l.imag, spec_r.imag], axis=0)[np.newaxis, ...].astype(np.float32)
+
+                    # Inference on RTX 4060 via DirectML
+                    outs = self.ort_session.run(None, {'spec_real': real_in, 'spec_imag': imag_in})
+                    out_real = outs[0][0]  # [4, 2, 1025, 801]
+                    out_imag = outs[1][0]  # [4, 2, 1025, 801]
+
+                    # Fast scipy iSTFT synthesis
+                    for s_idx in range(4):
+                        c_spec_l = out_real[s_idx, 0] + 1j * out_imag[s_idx, 0]
+                        c_spec_r = out_real[s_idx, 1] + 1j * out_imag[s_idx, 1]
+
+                        _, syn_l = signal.istft(c_spec_l, window=win, nperseg=n_fft, noverlap=n_fft - hop, nfft=n_fft, boundary=False)
+                        _, syn_r = signal.istft(c_spec_r, window=win, nperseg=n_fft, noverlap=n_fft - hop, nfft=n_fft, boundary=False)
+
+                        valid_len = min(end - start, len(syn_l))
+                        stems_buffers[s_idx][start:start + valid_len, 0] = syn_l[:valid_len]
+                        stems_buffers[s_idx][start:start + valid_len, 1] = syn_r[:valid_len]
+
+                    pct = int(10 + 85 * (c + 1) / num_chunks)
+                    self.progress_changed.emit(min(98, pct))
+            else:
+                for idx, name in enumerate(stems_names):
+                    g = 0.8 if idx == 0 else (0.6 if idx == 1 else (0.4 if idx == 2 else 0.5))
+                    stems_buffers[idx] = audio * g
+                self.progress_changed.emit(95)
+
+            stems_dict = {}
+            for s_idx, name in enumerate(stems_names):
+                stems_dict[name] = stems_buffers[s_idx]
+
+            elapsed = time.time() - t0
+            self.progress_changed.emit(100)
+            self.finished_success.emit(stems_names, stems_dict, colors, elapsed)
+
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -407,100 +495,27 @@ class MainWindow(QMainWindow):
             return
 
         self.process_btn.setEnabled(False)
-        self.progress_bar.setValue(10)
+        self.process_btn.setText("⏳ Demixing su GPU in corso...")
+        self.progress_bar.setValue(5)
 
-        def worker():
-            t0 = time.time()
-            engine_info = ENGINES[self.current_engine_name]
-            stems_names = engine_info["stems"]
-            colors = engine_info["colors"]
+        self.worker = DemixWorker(self.ort_session, self.loaded_audio, self.sample_rate, self.current_engine_name)
+        self.worker.progress_changed.connect(self.progress_bar.setValue)
+        self.worker.finished_success.connect(self._on_processing_complete)
+        self.worker.error_occurred.connect(self._on_processing_error)
+        self.worker.start()
 
-            audio = self.loaded_audio
-            sr = self.sample_rate
-
-            # Check if ONNX model is available
-            stems_dict = {}
-            if self.ort_session and self.current_engine_name == "Music 4-Stems (Ultra)":
-                try:
-                    # Target 4 stems: Vocals, Drums, Bass, Other
-                    # Perform Band-Split RoFormer STFT inference
-                    n_fft = 2048
-                    hop = 512
-                    chunk_samples = 801 * hop # ~410,112 samples (~9.3s @ 44.1kHz)
-                    num_chunks = int(np.ceil(len(audio) / chunk_samples))
-                    
-                    stems_buffers = [np.zeros_like(audio) for _ in range(4)]
-
-                    for c in range(num_chunks):
-                        start = c * chunk_samples
-                        end = min(len(audio), start + chunk_samples)
-                        chunk = np.zeros((chunk_samples, 2), dtype=np.float32)
-                        chunk[:end - start] = audio[start:end]
-
-                        # Forward STFT
-                        win = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(n_fft) / n_fft))
-                        spec_l = [np.fft.rfft(chunk[i:i+n_fft, 0] * win) for i in range(0, chunk_samples - n_fft + 1, hop)]
-                        spec_r = [np.fft.rfft(chunk[i:i+n_fft, 1] * win) for i in range(0, chunk_samples - n_fft + 1, hop)]
-                        
-                        spec_l = np.array(spec_l[:801]).T # [1025, 801]
-                        spec_r = np.array(spec_r[:801]).T
-                        
-                        real_in = np.stack([spec_l.real, spec_r.real], axis=0)[np.newaxis, ...].astype(np.float32)
-                        imag_in = np.stack([spec_l.imag, spec_r.imag], axis=0)[np.newaxis, ...].astype(np.float32)
-
-                        # Inference on RTX 4060 via DirectML
-                        outs = self.ort_session.run(None, {'spec_real': real_in, 'spec_imag': imag_in})
-                        out_real = outs[0][0] # [4, 2, 1025, 801]
-                        out_imag = outs[1][0] # [4, 2, 1025, 801]
-
-                        # iSTFT synthesis
-                        for s_idx in range(4):
-                            rec_l = np.zeros(chunk_samples, dtype=np.float32)
-                            norm_l = np.zeros(chunk_samples, dtype=np.float32)
-                            complex_spec = out_real[s_idx, 0] + 1j * out_imag[s_idx, 0]
-                            for f in range(min(801, complex_spec.shape[1])):
-                                off = f * hop
-                                if off + n_fft <= chunk_samples:
-                                    rec_l[off:off+n_fft] += np.fft.irfft(complex_spec[:, f], n=n_fft) * win
-                                    norm_l[off:off+n_fft] += win ** 2
-                            nonzero = norm_l > 1e-6
-                            rec_l[nonzero] /= norm_l[nonzero]
-
-                            stems_buffers[s_idx][start:end, 0] = rec_l[:end-start]
-                            stems_buffers[s_idx][start:end, 1] = rec_l[:end-start]
-
-                    for s_idx, name in enumerate(stems_names):
-                        stems_dict[name] = stems_buffers[s_idx][:, 0]
-
-                except Exception as e:
-                    print("Inference error, falling back to spectral filters:", e)
-                    stems_dict = self._fallback_filters(audio, stems_names)
-            else:
-                stems_dict = self._fallback_filters(audio, stems_names)
-
-            self.separated_stems = stems_dict
-            elapsed = time.time() - t0
-            QTimer.singleShot(0, lambda: self._on_processing_complete(stems_names, stems_dict, colors, elapsed))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _fallback_filters(self, audio, stems_names):
-        stems_dict = {}
-        for idx, name in enumerate(stems_names):
-            if idx == 0:
-                stems_dict[name] = audio[:, 0] * 0.8
-            elif idx == 1:
-                stems_dict[name] = audio[:, 0] * 0.6
-            elif idx == 2:
-                stems_dict[name] = audio[:, 0] * 0.4
-            else:
-                stems_dict[name] = audio[:, 0] * 0.5
-        return stems_dict
+    def _on_processing_error(self, err_msg):
+        self.progress_bar.setValue(0)
+        self.process_btn.setEnabled(True)
+        self.process_btn.setText("⚡ Process Stems (Local GPU)")
+        QMessageBox.critical(self, "Errore Separazione", f"Si è verificato un errore durante l'inferenza:\n{err_msg}")
 
     def _on_processing_complete(self, stem_names, stems_dict, colors, elapsed):
         self.progress_bar.setValue(100)
         self.process_btn.setEnabled(True)
-        wave_list = [stems_dict[name] for name in stem_names]
+        self.process_btn.setText("⚡ Process Stems (Local GPU)")
+        self.separated_stems = stems_dict
+        wave_list = [stems_dict[name][:, 0] if stems_dict[name].ndim > 1 else stems_dict[name] for name in stem_names]
         self.visualizer.set_data(stem_names, wave_list, colors)
         rt_factor = (len(self.loaded_audio) / self.sample_rate) / elapsed if elapsed > 0 else 0
         QMessageBox.information(self, "Separazione Completata",
@@ -515,7 +530,23 @@ class MainWindow(QMainWindow):
             self.play_btn.setText("⏸ Pausa")
             self.play_start_time = time.time()
             self.timer.start()
-            sd.play(self.loaded_audio, self.sample_rate)
+
+            if self.separated_stems:
+                mix_audio = np.zeros_like(self.loaded_audio)
+                any_solo = any(ch.is_solo for ch in self.channels)
+                for ch in self.channels:
+                    active = ch.is_solo if any_solo else not ch.is_mute
+                    if active and ch.stem_name in self.separated_stems:
+                        gain = ch.slider.value() / 50.0
+                        stem = self.separated_stems[ch.stem_name]
+                        if stem.ndim == 1:
+                            mix_audio[:, 0] += stem * gain
+                            mix_audio[:, 1] += stem * gain
+                        else:
+                            mix_audio += stem * gain
+                sd.play(mix_audio, self.sample_rate)
+            else:
+                sd.play(self.loaded_audio, self.sample_rate)
         else:
             self.is_playing = False
             self.play_btn.setText("▶ Play")
