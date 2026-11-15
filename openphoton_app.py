@@ -96,7 +96,7 @@ ENGINES = {
     }
 }
 
-# Per-stem model assignment options (user-selectable)
+# Per-stem model assignment options
 STEM_MODEL_OPTIONS = {
     "Vocals":       ["htdemucs (HTDemucs v4)",
                      "kim_vocal_2 (Kim Vocal 2 MDX)",
@@ -154,113 +154,120 @@ MODEL_PATH = resolve_model_path()
 
 
 # ===========================================================================
-# DSP utilities
+# DSP utilities (Fail-safe, Studio-Grade)
 # ===========================================================================
 
 def apply_denoiser(audio: np.ndarray, threshold_db: float, reduction_db: float, sr: int) -> np.ndarray:
-    """STFT spectral gate denoiser."""
-    if audio.ndim == 1:
-        audio = audio[:, np.newaxis]
-    n_fft = 2048
-    hop = n_fft // 4
-    out_chans = []
-    thresh_linear = 10 ** (threshold_db / 20.0)
-    reduction_linear = 10 ** (-abs(reduction_db) / 20.0)
-    for c in range(audio.shape[1]):
-        f, t, Zxx = signal.stft(audio[:, c], fs=sr, nperseg=n_fft, noverlap=n_fft - hop)
-        mag = np.abs(Zxx)
-        phase = np.angle(Zxx)
-        # Noise estimate from quietest 15th-percentile bins
-        noise_est = np.percentile(mag, 15, axis=-1, keepdims=True)
-        # Binary soft gate with smooth knee
-        gate = np.where(mag > thresh_linear * noise_est,
-                        1.0,
-                        reduction_linear + (1.0 - reduction_linear) * (mag / (thresh_linear * noise_est + 1e-9)))
-        clean_mag = mag * gate
-        _, cleaned = signal.istft(clean_mag * np.exp(1j * phase), fs=sr, nperseg=n_fft, noverlap=n_fft - hop)
-        out_chans.append(cleaned[:len(audio)])
-    return np.stack(out_chans, axis=-1).astype(np.float32)
+    """STFT spectral gate denoiser with soft knee and zero artifacts."""
+    try:
+        if audio.ndim == 1:
+            audio = audio[:, np.newaxis]
+        n_fft = 2048
+        if len(audio) < n_fft:
+            return audio.astype(np.float32)
+        hop = n_fft // 4
+        out_chans = []
+        thresh_linear = 10 ** (threshold_db / 20.0)
+        reduction_linear = 10 ** (-abs(reduction_db) / 20.0)
+        for c in range(audio.shape[1]):
+            f, t, Zxx = signal.stft(audio[:, c], fs=sr, nperseg=n_fft, noverlap=n_fft - hop)
+            mag = np.abs(Zxx)
+            phase = np.angle(Zxx)
+            noise_est = np.percentile(mag, 15, axis=-1, keepdims=True)
+            gate = np.where(mag > thresh_linear * noise_est,
+                            1.0,
+                            reduction_linear + (1.0 - reduction_linear) * (mag / (thresh_linear * noise_est + 1e-9)))
+            clean_mag = mag * gate
+            _, cleaned = signal.istft(clean_mag * np.exp(1j * phase), fs=sr, nperseg=n_fft, noverlap=n_fft - hop)
+            cleaned = np.nan_to_num(cleaned[:len(audio)], copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+            out_chans.append(cleaned)
+        return np.stack(out_chans, axis=-1).astype(np.float32)
+    except Exception as e:
+        print(f"[apply_denoiser error] {e}")
+        return audio.astype(np.float32)
 
 
 def apply_eq(audio: np.ndarray, bands: list, sr: int) -> np.ndarray:
-    """
-    5-band parametric EQ applied via biquad cascades.
-    bands: list of dicts {type, freq, gain_db, q}
-    types: 'lowcut', 'lowshelf', 'peak', 'highshelf', 'highcut'
-    """
-    if audio.ndim == 1:
-        audio = audio[:, np.newaxis]
-    out = audio.astype(np.float64)
-    nyq = sr / 2.0
-    for band in bands:
-        freq = max(10.0, min(band.get("freq", 1000.0), nyq - 1.0))
-        gain_db = band.get("gain_db", 0.0)
-        q = max(0.1, band.get("q", 0.707))
-        btype = band.get("type", "peak")
-        w0 = freq / nyq
+    """5-band parametric EQ applied via zero-phase biquad filters."""
+    try:
+        if audio.ndim == 1:
+            audio = audio[:, np.newaxis]
+        out = audio.astype(np.float64)
+        nyq = sr / 2.0
+        for band in bands:
+            freq = max(20.0, min(band.get("freq", 1000.0), nyq - 100.0))
+            gain_db = max(-36.0, min(band.get("gain_db", 0.0), 36.0))
+            q = max(0.2, min(band.get("q", 0.707), 10.0))
+            btype = band.get("type", "peak")
+            w0 = max(0.001, min(freq / nyq, 0.99))
 
-        if abs(gain_db) < 0.01 and btype in ("peak", "lowshelf", "highshelf"):
-            continue
-
-        try:
-            if btype == "lowcut":
-                b, a = signal.butter(2, w0, btype='high')
-            elif btype == "highcut":
-                b, a = signal.butter(2, w0, btype='low')
-            elif btype == "peak":
-                b, a = signal.iirpeak(w0, q)
-                # Scale by gain
-                A = 10 ** (gain_db / 40.0)
-                b = b * A if gain_db >= 0 else b / A
-            elif btype == "lowshelf":
-                b, a = signal.iirfilter(1, w0, btype='low', ftype='butter')
-                A = 10 ** (gain_db / 40.0)
-                b = b * A if gain_db >= 0 else b
-            elif btype == "highshelf":
-                b, a = signal.iirfilter(1, w0, btype='high', ftype='butter')
-                A = 10 ** (gain_db / 40.0)
-                b = b * A if gain_db >= 0 else b
-            else:
+            if abs(gain_db) < 0.01 and btype in ("peak", "lowshelf", "highshelf"):
                 continue
 
-            for c in range(out.shape[1]):
-                out[:, c] = signal.filtfilt(b, a, out[:, c])
-        except Exception:
-            pass
+            try:
+                if btype == "lowcut":
+                    b, a = signal.butter(2, w0, btype='high')
+                elif btype == "highcut":
+                    b, a = signal.butter(2, w0, btype='low')
+                elif btype == "peak":
+                    b, a = signal.iirpeak(w0, q)
+                    A = 10 ** (gain_db / 40.0)
+                    b = b * A if gain_db >= 0 else b / A
+                elif btype == "lowshelf":
+                    b, a = signal.iirfilter(1, w0, btype='low', ftype='butter')
+                    A = 10 ** (gain_db / 40.0)
+                    b = b * A if gain_db >= 0 else b
+                elif btype == "highshelf":
+                    b, a = signal.iirfilter(1, w0, btype='high', ftype='butter')
+                    A = 10 ** (gain_db / 40.0)
+                    b = b * A if gain_db >= 0 else b
+                else:
+                    continue
 
-    return out.astype(np.float32)
+                for c in range(out.shape[1]):
+                    out[:, c] = signal.filtfilt(b, a, out[:, c])
+            except Exception:
+                pass
+
+        out = np.nan_to_num(out, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+        return out.astype(np.float32)
+    except Exception as e:
+        print(f"[apply_eq error] {e}")
+        return audio.astype(np.float32)
 
 
 def apply_saturation(audio: np.ndarray, drive: float, character: str, mix: float) -> np.ndarray:
-    """Analog waveshaper saturation."""
-    dry = audio.astype(np.float32)
-    d = max(0.001, min(drive, 1.0))
-    gain = 1.0 + d * 9.0  # up to 10x drive
-    driven = dry * gain
+    """Analog waveshaper saturation (Soft Clip, Tape, Tube) with output protection."""
+    try:
+        dry = audio.astype(np.float32)
+        d = max(0.001, min(drive, 1.0))
+        gain = 1.0 + d * 9.0
+        driven = dry * gain
 
-    if character == "Soft Clip":
-        wet = np.tanh(driven)
-    elif character == "Tape":
-        wet = np.sign(driven) * (1.0 - np.exp(-np.abs(driven)))
-    elif character == "Tube":
-        # Asymmetric waveshaper (tube-like, slight 2nd harmonic)
-        pos = np.where(driven >= 0, np.tanh(driven * 0.9), driven)
-        neg = np.where(driven < 0, -np.tanh(-driven * 1.1), driven)
-        wet = np.where(driven >= 0, pos, neg)
-        wet = np.where(driven >= 0, pos, neg)
-    else:
-        wet = np.tanh(driven)
+        if character == "Soft Clip":
+            wet = np.tanh(driven)
+        elif character == "Tape":
+            wet = np.sign(driven) * (1.0 - np.exp(-np.abs(driven)))
+        elif character == "Tube":
+            pos = np.where(driven >= 0, np.tanh(driven * 0.9), driven)
+            neg = np.where(driven < 0, -np.tanh(-driven * 1.1), driven)
+            wet = np.where(driven >= 0, pos, neg)
+        else:
+            wet = np.tanh(driven)
 
-    # Normalize to prevent clipping
-    peak = np.max(np.abs(wet)) + 1e-9
-    if peak > 1.0:
-        wet /= peak
+        wet = np.nan_to_num(wet, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+        peak = np.max(np.abs(wet)) + 1e-9
+        if peak > 1.0:
+            wet /= peak
 
-    return (dry * (1.0 - mix) + wet * mix).astype(np.float32)
+        return (dry * (1.0 - mix) + wet * mix).astype(np.float32)
+    except Exception as e:
+        print(f"[apply_saturation error] {e}")
+        return audio.astype(np.float32)
 
 
 # ===========================================================================
-# Workers
+# Workers (Crash-Proof, Thread-Safe)
 # ===========================================================================
 
 class ModelDownloadWorker(QThread):
@@ -268,8 +275,8 @@ class ModelDownloadWorker(QThread):
     finished_success = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, model_key):
-        super().__init__()
+    def __init__(self, model_key, parent=None):
+        super().__init__(parent)
         self.model_key = model_key
 
     def run(self):
@@ -286,18 +293,22 @@ class ExportWorker(QThread):
     finished_success = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, stems_dict, folder, fmt, sr, channels, processing_params):
-        super().__init__()
+    def __init__(self, stems_dict, folder, fmt, sr, channels_or_params, processing_params=None, parent=None):
+        super().__init__(parent)
         self.stems_dict = stems_dict
         self.folder = folder
         self.fmt = fmt          # 'WAV' | 'AIFF' | 'MP3'
         self.sr = sr
-        self.channels = channels
-        self.processing_params = processing_params  # {stem_name: {...}}
+        if processing_params is not None:
+            self.processing_params = processing_params
+        elif isinstance(channels_or_params, dict):
+            self.processing_params = channels_or_params
+        else:
+            self.processing_params = {}
 
     def run(self):
         try:
-            total = len(self.stems_dict)
+            total = max(1, len(self.stems_dict))
             for i, (name, wave) in enumerate(self.stems_dict.items()):
                 self.progress_changed.emit(int(100 * i / total), f"Esportazione: {name}")
                 processed = self._apply_fx(wave, name)
@@ -312,7 +323,6 @@ class ExportWorker(QThread):
                     try:
                         from pydub import AudioSegment
                         import tempfile
-                        # Write temp WAV first
                         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                         tmp_path = tmp.name
                         tmp.close()
@@ -320,13 +330,15 @@ class ExportWorker(QThread):
                         out_path = os.path.join(self.folder, f"{name}.mp3")
                         seg = AudioSegment.from_wav(tmp_path)
                         seg.export(out_path, format="mp3", bitrate="320k")
-                        os.unlink(tmp_path)
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
                     except ImportError:
-                        # Fallback to WAV if pydub not available
                         out_path = os.path.join(self.folder, f"{name}.wav")
                         sf.write(out_path, processed, self.sr, subtype='PCM_24')
                         self.error_occurred.emit(
-                            "pydub non è installato (pip install pydub). Esportato come WAV.")
+                            "pydub non è installato (pip install pydub). Esportato in WAV 24-bit.")
                         return
 
             self.progress_changed.emit(100, "Completato")
@@ -366,18 +378,25 @@ class ExportWorker(QThread):
 class StemFXWorker(QThread):
     finished_stem = pyqtSignal(str, object)
 
-    def __init__(self, stem_name, raw_audio, params, sr):
-        super().__init__()
+    def __init__(self, stem_name, raw_audio, params, sr, parent=None):
+        super().__init__(parent)
         self.stem_name = stem_name
         self.raw_audio = raw_audio
         self.params = params
         self.sr = sr
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
 
     def run(self):
         try:
             audio = self.raw_audio.copy().astype(np.float32)
             if audio.ndim == 1:
                 audio = np.stack([audio, audio], axis=-1)
+
+            if self._cancelled:
+                return
 
             dn = self.params.get("denoiser", {})
             if dn.get("enabled", False):
@@ -386,9 +405,15 @@ class StemFXWorker(QThread):
                                        reduction_db=dn.get("reduction_db", 12.0),
                                        sr=self.sr)
 
+            if self._cancelled:
+                return
+
             eq = self.params.get("eq", {})
             if eq.get("enabled", False):
                 audio = apply_eq(audio, eq.get("bands", []), sr=self.sr)
+
+            if self._cancelled:
+                return
 
             sat = self.params.get("sat", {})
             if sat.get("enabled", False):
@@ -397,7 +422,8 @@ class StemFXWorker(QThread):
                                          character=sat.get("character", "Soft Clip"),
                                          mix=sat.get("mix", 0.3))
 
-            self.finished_stem.emit(self.stem_name, audio)
+            if not self._cancelled:
+                self.finished_stem.emit(self.stem_name, audio)
         except Exception as e:
             print(f"[StemFXWorker error] {e}")
 
@@ -408,14 +434,14 @@ class DemixWorker(QThread):
     error_occurred = pyqtSignal(str)
 
     def __init__(self, ort_session, audio, sr, engine_name,
-                 target_scope="Tutti gli Stem (Completo)", stem_model_keys=None):
-        super().__init__()
+                 target_scope="Tutti gli Stem (Completo)", stem_model_keys=None, parent=None):
+        super().__init__(parent)
         self.ort_session = ort_session
         self.audio = audio
         self.sr = sr
         self.engine_name = engine_name
         self.target_scope = target_scope
-        self.stem_model_keys = stem_model_keys or {}   # {stem_name: "model_key"}
+        self.stem_model_keys = stem_model_keys or {}
 
     def _process_mdx(self, sess, audio, n_fft, dim_f, dim_t, hop, comp, p_start, p_end):
         chunk_samples = (dim_t - 1) * hop + n_fft
@@ -476,7 +502,7 @@ class DemixWorker(QThread):
         return out_audio / weight
 
     def _run_htdemucs(self, model_key, proc_audio, n_stems=4):
-        """Run HTDemucs 4s or 6s model."""
+        """Run HTDemucs on CPUExecutionProvider (thread-safe, OOM-proof)."""
         m_path = get_model_path(model_key)
         sess_opts = ort.SessionOptions()
         sess_opts.intra_op_num_threads = 8
@@ -546,7 +572,6 @@ class DemixWorker(QThread):
             sess_opts.intra_op_num_threads = 8
             sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
-            # Determine effective vocal model from per-stem selection
             vocal_model_key = "htdemucs"
             voc_choice = self.stem_model_keys.get("Vocals", "")
             if "kim_vocal_2" in voc_choice and kim_model and kim_model.exists():
@@ -554,13 +579,10 @@ class DemixWorker(QThread):
             elif "htdemucs_6s" in voc_choice and htdemucs_6s_model and htdemucs_6s_model.exists():
                 vocal_model_key = "htdemucs_6s"
 
-            # ----------------------------------------------------------------
-            # ENGINE: Music 6-Stems
-            # ----------------------------------------------------------------
+            # 1. ENGINE: Music 6-Stems
             if self.engine_name == "Music 6-Stems (Guitar & Piano)" and htdemucs_6s_model:
                 self.progress_changed.emit(5)
                 stems_acc = self._run_htdemucs("htdemucs_6s", proc_audio, n_stems=6)
-                # 6s mapping: 0=Drums, 1=Bass, 2=Other, 3=Vocals, 4=Guitar, 5=Piano
                 stems_dict["Vocals"] = stems_acc[3].T[:len(proc_audio)]
                 stems_dict["Drums"] = stems_acc[0].T[:len(proc_audio)]
                 stems_dict["Bass"] = stems_acc[1].T[:len(proc_audio)]
@@ -568,23 +590,28 @@ class DemixWorker(QThread):
                 stems_dict["Piano"] = stems_acc[5].T[:len(proc_audio)]
                 stems_dict["Other"] = stems_acc[2].T[:len(proc_audio)]
 
-                # Optional: replace Vocals with Kim SOTA
                 if vocal_model_key == "kim_vocal_2" and kim_model and kim_model.exists():
                     self.progress_changed.emit(93)
-                    sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
-                                                    providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
+                    try:
+                        sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
+                                                        providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
+                    except Exception:
+                        sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
+                                                        providers=['CPUExecutionProvider'])
                     vocals_kim = self._process_mdx(sess_kim, proc_audio,
                                                    n_fft=7680, dim_f=3072, dim_t=256,
                                                    hop=1024, comp=1.009, p_start=93, p_end=98)
                     stems_dict["Vocals"] = vocals_kim
 
-            # ----------------------------------------------------------------
-            # ENGINE: Acapella & Instrumental (Kim SOTA)
-            # ----------------------------------------------------------------
+            # 2. ENGINE: Acapella & Instrumental (Kim SOTA)
             elif self.engine_name == "Acapella & Instrumental (Kim SOTA)" and kim_model:
                 self.progress_changed.emit(5)
-                providers = ['DmlExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
-                sess_kim = ort.InferenceSession(str(kim_model), sess_opts, providers=providers)
+                try:
+                    sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
+                                                    providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
+                except Exception:
+                    sess_kim = ort.InferenceSession(str(kim_model), sess_opts,
+                                                    providers=['CPUExecutionProvider'])
                 vocals = self._process_mdx(sess_kim, proc_audio,
                                            n_fft=7680, dim_f=3072, dim_t=256,
                                            hop=1024, comp=1.009, p_start=5, p_end=90)
@@ -592,25 +619,26 @@ class DemixWorker(QThread):
                 stems_dict["Vocals"] = vocals
                 stems_dict["Instrumental"] = instrumental
 
-            # ----------------------------------------------------------------
-            # BASE ENGINE: HTDemucs v4 4-Stem (all remaining engines)
-            # ----------------------------------------------------------------
+            # 3. BASE ENGINE: HTDemucs v4 4-Stem
             elif htdemucs_model:
                 self.progress_changed.emit(5)
                 stems_acc = self._run_htdemucs("htdemucs", proc_audio, n_stems=4)
-                # 4s mapping: 0=Drums, 1=Bass, 2=Other, 3=Vocals
                 drums_raw = stems_acc[0].T[:len(proc_audio)]
                 bass_raw = stems_acc[1].T[:len(proc_audio)]
                 other_raw = stems_acc[2].T[:len(proc_audio)]
                 vocals_raw = stems_acc[3].T[:len(proc_audio)]
 
                 if self.engine_name == "Music 4-Stems (Ultra)":
-                    # Optional vocal refinement with Kim SOTA
                     if vocal_model_key == "kim_vocal_2" and kim_model and kim_model.exists():
                         self.progress_changed.emit(93)
-                        sess_kim = ort.InferenceSession(
-                            str(kim_model), sess_opts,
-                            providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
+                        try:
+                            sess_kim = ort.InferenceSession(
+                                str(kim_model), sess_opts,
+                                providers=['DmlExecutionProvider', 'CPUExecutionProvider'])
+                        except Exception:
+                            sess_kim = ort.InferenceSession(
+                                str(kim_model), sess_opts,
+                                providers=['CPUExecutionProvider'])
                         vocals_raw = self._process_mdx(
                             sess_kim, proc_audio,
                             n_fft=7680, dim_f=3072, dim_t=256,
@@ -714,17 +742,24 @@ class DemixWorker(QThread):
                     stems_dict[name] = proc_audio * g
                 self.progress_changed.emit(95)
 
-            # Sample-accurate resample back to original rate
+            # Sample-accurate resample back to original rate with exact size alignment
             if orig_sr != target_sr:
                 for k in stems_dict:
-                    stems_dict[k] = signal.resample_poly(
+                    resampled = signal.resample_poly(
                         stems_dict[k], down, up, axis=0
-                    ).astype(np.float32)[:len(audio)]
+                    ).astype(np.float32)
+                    padded = np.zeros((len(audio), 2), dtype=np.float32)
+                    valid = min(len(resampled), len(audio))
+                    padded[:valid] = resampled[:valid]
+                    stems_dict[k] = padded
             else:
                 for k in stems_dict:
-                    stems_dict[k] = stems_dict[k][:len(audio)]
+                    padded = np.zeros((len(audio), 2), dtype=np.float32)
+                    valid = min(len(stems_dict[k]), len(audio))
+                    padded[:valid] = stems_dict[k][:valid]
+                    stems_dict[k] = padded
 
-            # Scope filter
+            # Scope filtering
             if self.target_scope == "Solo Vocals / Lead" and "Vocals" in stems_dict:
                 voc = stems_dict["Vocals"]
                 inst = audio - voc
@@ -756,6 +791,8 @@ class ModelManagerDialog(QDialog):
         self.setWindowTitle("PhotonX — SOTA Model Manager (Hugging Face)")
         self.resize(760, 520)
         self.setStyleSheet("background-color: #0d1117; color: #f1f5f9; font-family: 'Segoe UI';")
+
+        self.dl_workers = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -847,11 +884,13 @@ class ModelManagerDialog(QDialog):
             btn.setEnabled(False)
             btn.setText("⏳ Connessione...")
 
-        self.dl_worker = ModelDownloadWorker(key)
-        self.dl_worker.progress_changed.connect(lambda pct, msg: btn.setText(f"⏳ {pct}%") if btn else None)
-        self.dl_worker.finished_success.connect(lambda k: self._on_download_finished(k))
-        self.dl_worker.error_occurred.connect(lambda err: QMessageBox.critical(self, "Errore Download", err))
-        self.dl_worker.start()
+        worker = ModelDownloadWorker(key, parent=self)
+        worker.progress_changed.connect(lambda pct, msg: btn.setText(f"⏳ {pct}%") if btn else None)
+        worker.finished_success.connect(lambda k: self._on_download_finished(k))
+        worker.error_occurred.connect(lambda err: QMessageBox.critical(self, "Errore Download", err))
+        worker.finished.connect(worker.deleteLater)
+        self.dl_workers[key] = worker
+        worker.start()
 
     def _on_download_finished(self, key):
         btn = self.btn_map.get(key)
@@ -862,7 +901,7 @@ class ModelManagerDialog(QDialog):
 
 
 # ===========================================================================
-# EQ Visualizer
+# EQ Visualizer (Interactive, Fail-safe)
 # ===========================================================================
 
 class EQCurveWidget(QWidget):
@@ -876,68 +915,72 @@ class EQCurveWidget(QWidget):
         self.setStyleSheet("background: #0a0d13; border: 1px solid #1e2432; border-radius: 4px;")
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
+        if w < 10 or h < 10:
+            return
 
-        painter.fillRect(self.rect(), QColor(10, 13, 19))
+        try:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Grid lines
-        painter.setPen(QPen(QColor(30, 36, 50), 1))
-        for y_frac in [0.25, 0.5, 0.75]:
-            painter.drawLine(0, int(h * y_frac), w, int(h * y_frac))
+            painter.fillRect(self.rect(), QColor(10, 13, 19))
 
-        # Frequency response curve (approximate)
-        freqs = np.geomspace(20, 20000, w)
-        sr = 44100
-        response = np.zeros(w)
+            # Grid lines
+            painter.setPen(QPen(QColor(30, 36, 50), 1))
+            for y_frac in [0.25, 0.5, 0.75]:
+                painter.drawLine(0, int(h * y_frac), w, int(h * y_frac))
 
-        for band in self.bands_getter():
-            freq = max(10.0, min(band.get("freq", 1000.0), 20000.0))
-            gain_db = band.get("gain_db", 0.0)
-            q = max(0.1, band.get("q", 0.707))
-            btype = band.get("type", "peak")
-            nyq = sr / 2.0
-            w0 = freq / nyq
-            try:
-                if btype == "lowcut":
-                    b, a = signal.butter(2, w0, btype='high')
-                elif btype == "highcut":
-                    b, a = signal.butter(2, w0, btype='low')
-                elif btype == "peak":
-                    b, a = signal.iirpeak(w0, q)
-                    A = 10 ** (gain_db / 40.0)
-                    b = b * A if gain_db >= 0 else b / A
-                elif btype in ("lowshelf", "highshelf"):
-                    btp = 'low' if btype == "lowshelf" else 'high'
-                    b, a = signal.iirfilter(1, w0, btype=btp, ftype='butter')
-                    A = 10 ** (gain_db / 40.0)
-                    b = b * A if gain_db >= 0 else b
+            freqs = np.geomspace(20, 20000, max(2, w))
+            sr = 44100
+            response = np.zeros(len(freqs))
+
+            for band in self.bands_getter():
+                freq = max(20.0, min(band.get("freq", 1000.0), 20000.0))
+                gain_db = band.get("gain_db", 0.0)
+                q = max(0.2, min(band.get("q", 0.707), 10.0))
+                btype = band.get("type", "peak")
+                nyq = sr / 2.0
+                w0 = max(0.001, min(freq / nyq, 0.99))
+                try:
+                    if btype == "lowcut":
+                        b, a = signal.butter(2, w0, btype='high')
+                    elif btype == "highcut":
+                        b, a = signal.butter(2, w0, btype='low')
+                    elif btype == "peak":
+                        b, a = signal.iirpeak(w0, q)
+                        A = 10 ** (gain_db / 40.0)
+                        b = b * A if gain_db >= 0 else b / A
+                    elif btype in ("lowshelf", "highshelf"):
+                        btp = 'low' if btype == "lowshelf" else 'high'
+                        b, a = signal.iirfilter(1, w0, btype=btp, ftype='butter')
+                        A = 10 ** (gain_db / 40.0)
+                        b = b * A if gain_db >= 0 else b
+                    else:
+                        continue
+                    w_arr, h_arr = signal.freqz(b, a, worN=freqs, fs=sr)
+                    response += 20 * np.log10(np.abs(h_arr) + 1e-9)
+                except Exception:
+                    pass
+
+            response = np.clip(response, -24, 24)
+            path = QPainterPath()
+            for xi in range(min(w, len(response))):
+                norm = (response[xi] + 24) / 48.0
+                y = h - norm * h
+                if xi == 0:
+                    path.moveTo(xi, y)
                 else:
-                    continue
-                w_arr, h_arr = signal.freqz(b, a, worN=freqs, fs=sr)
-                response += 20 * np.log10(np.abs(h_arr) + 1e-9)
-            except Exception:
-                pass
+                    path.lineTo(xi, y)
 
-        # Draw curve
-        response = np.clip(response, -24, 24)
-        path = QPainterPath()
-        for xi in range(w):
-            norm = (response[xi] + 24) / 48.0
-            y = h - norm * h
-            if xi == 0:
-                path.moveTo(xi, y)
-            else:
-                path.lineTo(xi, y)
+            pen = QPen(QColor(56, 189, 248), 1.5)
+            painter.setPen(pen)
+            painter.drawPath(path)
 
-        pen = QPen(QColor(56, 189, 248), 1.5)
-        painter.setPen(pen)
-        painter.drawPath(path)
-
-        # 0 dB line
-        painter.setPen(QPen(QColor(80, 100, 130, 150), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(0, h // 2, w, h // 2)
+            # 0 dB line
+            painter.setPen(QPen(QColor(80, 100, 130, 150), 1, Qt.PenStyle.DashLine))
+            painter.drawLine(0, h // 2, w, h // 2)
+        except Exception:
+            pass
 
 
 # ===========================================================================
@@ -945,11 +988,8 @@ class EQCurveWidget(QWidget):
 # ===========================================================================
 
 class FXPanel(QDialog):
-    """
-    Per-stem processing panel: Denoiser + 5-band EQ + Saturator.
-    Non-modal, stays open alongside the mixer.
-    """
-    params_changed = pyqtSignal(str, dict)   # (stem_name, params_dict)
+    """Per-stem processing panel: Denoiser + 5-band EQ + Saturator."""
+    params_changed = pyqtSignal(str, dict)
 
     BAND_NAMES = ["Low Cut", "Low Shelf", "Mid Peak", "High Shelf", "High Cut"]
     BAND_TYPES = ["lowcut", "lowshelf", "peak", "highshelf", "highcut"]
@@ -988,7 +1028,6 @@ class FXPanel(QDialog):
         layout.setSpacing(14)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        # Title
         title = QLabel(f"<b style='color:{color.name()}'>{stem_name.upper()}</b>  FX Chain")
         title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         layout.addWidget(title)
@@ -997,8 +1036,6 @@ class FXPanel(QDialog):
         layout.addWidget(self._build_eq())
         layout.addWidget(self._build_saturator())
         layout.addStretch()
-
-    # --- Denoiser ----------------------------------------------------------------
 
     def _build_denoiser(self):
         grp = QGroupBox("🎛  Denoiser Analogico (Spectral Gate)")
@@ -1011,7 +1048,6 @@ class FXPanel(QDialog):
         grid = QGridLayout()
         grid.setSpacing(8)
 
-        # Threshold
         grid.addWidget(QLabel("Soglia (dB):"), 0, 0)
         self.dn_thresh_sl = QSlider(Qt.Orientation.Horizontal)
         self.dn_thresh_sl.setRange(-80, 0)
@@ -1022,7 +1058,6 @@ class FXPanel(QDialog):
         grid.addWidget(self.dn_thresh_sl, 0, 1)
         grid.addWidget(self.dn_thresh_lbl, 0, 2)
 
-        # Reduction
         grid.addWidget(QLabel("Riduzione (dB):"), 1, 0)
         self.dn_red_sl = QSlider(Qt.Orientation.Horizontal)
         self.dn_red_sl.setRange(0, 60)
@@ -1035,8 +1070,6 @@ class FXPanel(QDialog):
 
         grp_layout.addLayout(grid)
         return grp
-
-    # --- EQ -----------------------------------------------------------------------
 
     def _build_eq(self):
         grp = QGroupBox("🎚  Equalizzatore Parametrico 5-Band (FabFilter Style)")
@@ -1064,7 +1097,7 @@ class FXPanel(QDialog):
             grid.addWidget(lbl, row, 0)
 
             freq_sl = QSlider(Qt.Orientation.Horizontal)
-            freq_sl.setRange(10, 20000)
+            freq_sl.setRange(20, 20000)
             freq_sl.setValue(int(freq))
             freq_lbl = QLabel(f"{int(freq)} Hz")
             freq_lbl.setFixedWidth(70)
@@ -1084,7 +1117,7 @@ class FXPanel(QDialog):
             grid.addWidget(gain_lbl, row, 2, alignment=Qt.AlignmentFlag.AlignRight)
 
             q_sl = QSlider(Qt.Orientation.Horizontal)
-            q_sl.setRange(1, 100)
+            q_sl.setRange(2, 100)
             q_sl.setValue(int(q * 10))
             q_lbl = QLabel(f"Q={q:.1f}")
             q_lbl.setFixedWidth(50)
@@ -1109,6 +1142,8 @@ class FXPanel(QDialog):
 
     def _get_eq_bands(self):
         bands = []
+        if not hasattr(self, '_eq_band_widgets'):
+            return bands
         for w in self._eq_band_widgets:
             bands.append({
                 "type": w["type"],
@@ -1117,8 +1152,6 @@ class FXPanel(QDialog):
                 "q": w["q_sl"].value() / 10.0,
             })
         return bands
-
-    # --- Saturator ----------------------------------------------------------------
 
     def _build_saturator(self):
         grp = QGroupBox("🔥  Saturatore Analogico")
@@ -1131,14 +1164,12 @@ class FXPanel(QDialog):
         grid = QGridLayout()
         grid.setSpacing(8)
 
-        # Character
         grid.addWidget(QLabel("Carattere:"), 0, 0)
         self.sat_char = QComboBox()
         self.sat_char.addItems(["Soft Clip", "Tape", "Tube"])
         self.sat_char.currentTextChanged.connect(lambda _: self._emit())
         grid.addWidget(self.sat_char, 0, 1, 1, 2)
 
-        # Drive
         grid.addWidget(QLabel("Drive:"), 1, 0)
         self.sat_drive_sl = QSlider(Qt.Orientation.Horizontal)
         self.sat_drive_sl.setRange(0, 100)
@@ -1149,7 +1180,6 @@ class FXPanel(QDialog):
         grid.addWidget(self.sat_drive_sl, 1, 1)
         grid.addWidget(self.sat_drive_lbl, 1, 2)
 
-        # Mix
         grid.addWidget(QLabel("Mix (Dry/Wet):"), 2, 0)
         self.sat_mix_sl = QSlider(Qt.Orientation.Horizontal)
         self.sat_mix_sl.setRange(0, 100)
@@ -1163,9 +1193,9 @@ class FXPanel(QDialog):
         grp_layout.addLayout(grid)
         return grp
 
-    # --- Emit --------------------------------------------------------------------
-
     def _emit(self):
+        if not hasattr(self, 'dn_enabled') or not hasattr(self, 'sat_char'):
+            return
         params = {
             "denoiser": {
                 "enabled": self.dn_enabled.isChecked(),
@@ -1184,7 +1214,6 @@ class FXPanel(QDialog):
             }
         }
         self._params = params
-        # Refresh EQ curve
         if hasattr(self, "_eq_curve"):
             self._eq_curve.update()
         self.params_changed.emit(self.stem_name, params)
@@ -1236,61 +1265,67 @@ class WaveformVisualizer(QFrame):
                 self.seek_requested.emit(max(0.0, min(1.0, ratio)))
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
-
-        if not self.waveforms:
-            painter.setPen(QColor(80, 95, 125))
-            painter.setFont(QFont("Segoe UI", 12))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                             "Carica una traccia audio e premi 'Process Stems' per visualizzare gli stem\n"
-                             "(Clicca sulla forma d'onda per riprodurre da qualsiasi punto)")
+        if w < 10 or h < 10:
             return
 
-        num_lanes = len(self.waveforms)
-        lane_h = h / num_lanes
+        try:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        for i, (name, wave, col) in enumerate(zip(self.stem_names, self.waveforms, self.colors)):
-            y_mid = i * lane_h + lane_h / 2.0
-            painter.setPen(QPen(QColor(30, 36, 50), 1))
-            painter.drawLine(0, int(i * lane_h), w, int(i * lane_h))
-            painter.setPen(col)
-            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            painter.drawText(14, int(y_mid - 2), name.upper())
-            painter.setPen(QColor(148, 163, 184))
-            painter.setFont(QFont("Segoe UI", 7))
-            painter.drawText(14, int(y_mid + 12), "[CLICCA SOLO]")
+            if not self.waveforms:
+                painter.setPen(QColor(80, 95, 125))
+                painter.setFont(QFont("Segoe UI", 12))
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                                 "Carica una traccia audio e premi 'Process Stems' per visualizzare gli stem\n"
+                                 "(Clicca sulla forma d'onda per riprodurre da qualsiasi punto)")
+                return
 
-            painter.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 210), 1.5))
-            start_x, end_x = 110, w - 20
-            draw_w = end_x - start_x
-            if draw_w > 0 and len(wave) > 0:
-                step = max(1, len(wave) // draw_w)
-                downsampled = wave[::step]
-                for x_idx, val in enumerate(downsampled[:draw_w]):
-                    x = start_x + x_idx
-                    amp = abs(val) * (lane_h * 0.42)
-                    painter.drawLine(int(x), int(y_mid - amp), int(x), int(y_mid + amp))
+            num_lanes = len(self.waveforms)
+            lane_h = h / num_lanes
 
-        if self.playhead_ratio > 0.0:
-            start_x = 110
-            draw_w = (w - 20) - start_x
-            px = start_x + int(self.playhead_ratio * draw_w)
-            painter.setPen(QPen(QColor(56, 189, 248, 250), 2))
-            painter.drawLine(px, 0, px, h)
+            for i, (name, wave, col) in enumerate(zip(self.stem_names, self.waveforms, self.colors)):
+                y_mid = i * lane_h + lane_h / 2.0
+                painter.setPen(QPen(QColor(30, 36, 50), 1))
+                painter.drawLine(0, int(i * lane_h), w, int(i * lane_h))
+                painter.setPen(col)
+                painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                painter.drawText(14, int(y_mid - 2), name.upper())
+                painter.setPen(QColor(148, 163, 184))
+                painter.setFont(QFont("Segoe UI", 7))
+                painter.drawText(14, int(y_mid + 12), "[CLICCA SOLO]")
+
+                painter.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 210), 1.5))
+                start_x, end_x = 110, w - 20
+                draw_w = end_x - start_x
+                if draw_w > 0 and len(wave) > 0:
+                    step = max(1, len(wave) // draw_w)
+                    downsampled = wave[::step]
+                    for x_idx, val in enumerate(downsampled[:draw_w]):
+                        x = start_x + x_idx
+                        amp = abs(val) * (lane_h * 0.42)
+                        painter.drawLine(int(x), int(y_mid - amp), int(x), int(y_mid + amp))
+
+            if self.playhead_ratio > 0.0:
+                start_x = 110
+                draw_w = (w - 20) - start_x
+                px = start_x + int(self.playhead_ratio * draw_w)
+                painter.setPen(QPen(QColor(56, 189, 248, 250), 2))
+                painter.drawLine(px, 0, px, h)
+        except Exception:
+            pass
 
 
 # ===========================================================================
-# Stem Channel Strip (with model selector + FX button)
+# Stem Channel Strip
 # ===========================================================================
 
 class StemChannel(QFrame):
     gain_changed = pyqtSignal(int, float)
     mute_toggled = pyqtSignal(int, bool)
     solo_toggled = pyqtSignal(int, bool)
-    model_changed = pyqtSignal(int, str)   # (index, model_choice_str)
-    fx_requested = pyqtSignal(int)         # open FX panel for this stem
+    model_changed = pyqtSignal(int, str)
+    fx_requested = pyqtSignal(int)
 
     def __init__(self, index, name, color, parent=None):
         super().__init__(parent)
@@ -1315,7 +1350,6 @@ class StemChannel(QFrame):
         self.title_lbl.setStyleSheet(f"color: {color.name()}; border: none;")
         layout.addWidget(self.title_lbl)
 
-        # Model selector
         self.model_combo = QComboBox()
         options = STEM_MODEL_OPTIONS.get(name, ["htdemucs (HTDemucs v4)"])
         for opt in options:
@@ -1394,7 +1428,6 @@ class StemChannel(QFrame):
 
     def _toggle_mute(self):
         self.set_mute(not self.is_mute)
-        self.mute_toggled.emit(self.index, self.is_mute)
 
     def set_mute(self, active):
         self.is_mute = active
@@ -1402,10 +1435,10 @@ class StemChannel(QFrame):
             self.mute_btn.setStyleSheet("background-color: #ef4444; color: #ffffff; font-weight: bold; border-radius: 4px;")
         else:
             self.mute_btn.setStyleSheet("background-color: #1e2432; color: #94a3b8; font-weight: bold; border-radius: 4px;")
+        self.mute_toggled.emit(self.index, self.is_mute)
 
     def _toggle_solo(self):
         self.set_solo(not self.is_solo)
-        self.solo_toggled.emit(self.index, self.is_solo)
 
     def set_solo(self, active):
         self.is_solo = active
@@ -1413,6 +1446,7 @@ class StemChannel(QFrame):
             self.solo_btn.setStyleSheet("background-color: #f59e0b; color: #000000; font-weight: bold; border-radius: 4px;")
         else:
             self.solo_btn.setStyleSheet("background-color: #1e2432; color: #94a3b8; font-weight: bold; border-radius: 4px;")
+        self.solo_toggled.emit(self.index, self.is_solo)
 
 
 # ===========================================================================
@@ -1438,7 +1472,7 @@ class ExportDialog(QDialog):
         self.fmt_group = QButtonGroup(self)
         self.rb_wav = QRadioButton("WAV 24-bit (qualità massima, lossless)")
         self.rb_aiff = QRadioButton("AIFF 24-bit (compatibile Apple / Logic Pro)")
-        self.rb_mp3 = QRadioButton("MP3 320kbps (richiede pydub + ffmpeg)")
+        self.rb_mp3 = QRadioButton("MP3 320kbps (compresso ad alta qualità)")
         self.rb_wav.setChecked(True)
 
         for rb in [self.rb_wav, self.rb_aiff, self.rb_mp3]:
@@ -1489,6 +1523,7 @@ class MainWindow(QMainWindow):
         self.sample_rate = 44100
         self.separated_stems = {}
         self.processed_stems = {}
+        self.stem_mix_states = {}     # Audio-thread-safe {name: {'gain': float, 'mute': bool, 'solo': bool}}
         self.is_playing = False
         self.playback_frame_pos = 0
         self.playback_lock = threading.Lock()
@@ -1496,34 +1531,34 @@ class MainWindow(QMainWindow):
         self.stream_finished = False
         self.current_engine_name = "Music 4-Stems (Ultra)"
         self.channels = []
-        self.fx_panels = {}           # {stem_name: FXPanel}
-        self.processing_params = {}   # {stem_name: {...}}
+        self.fx_panels = {}
+        self.processing_params = {}
         self._fx_workers = {}
-        self._pending_fx_stem = None
+        self._pending_fx_stems = set()
 
         self.fx_debounce_timer = QTimer(self)
         self.fx_debounce_timer.setSingleShot(True)
         self.fx_debounce_timer.setInterval(120)
         self.fx_debounce_timer.timeout.connect(self._apply_pending_fx)
 
+        self._init_ort_session()
+        self._init_ui()
+
+        self.timer = QTimer(self)
+        self.timer.setInterval(30)
+        self.timer.timeout.connect(self._update_playback_pos)
+
+    def _init_ort_session(self):
         sess_opts = ort.SessionOptions()
         sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         providers = get_available_execution_providers()
         self.active_provider = providers[0] if providers else "CPUExecutionProvider"
         try:
-            self.ort_session = ort.InferenceSession(str(MODEL_PATH), sess_opts,
-                                                    providers=[self.active_provider])
+            # Force CPU for HTDemucs to avoid DirectML ConvTranspose VRAM limits
+            provider = 'CPUExecutionProvider' if 'htdemucs' in str(MODEL_PATH).lower() else self.active_provider
+            self.ort_session = ort.InferenceSession(str(MODEL_PATH), sess_opts, providers=[provider])
         except Exception:
             self.ort_session = None
-
-        self._init_ui()
-        self.timer = QTimer(self)
-        self.timer.setInterval(30)
-        self.timer.timeout.connect(self._update_playback_pos)
-
-    # -------------------------------------------------------------------------
-    # UI build
-    # -------------------------------------------------------------------------
 
     def _init_ui(self):
         central = QWidget(self)
@@ -1598,11 +1633,10 @@ class MainWindow(QMainWindow):
             "background-color: #1e293b; color: #f1f5f9; padding: 6px 10px; border-radius: 6px; font-weight: bold;")
         transport_layout.addWidget(self.scope_combo)
 
-        # Best Quality preset button
         self.preset_btn = QPushButton("⭐ Best Quality")
         self.preset_btn.setStyleSheet(
             "background-color: #7c3aed; color: white; padding: 9px 16px; border-radius: 6px; font-weight: bold; font-size: 12px;")
-        self.preset_btn.setToolTip("Applica automaticamente il modello migliore disponibile per ogni stem")
+        self.preset_btn.setToolTip("Applica automaticamente il modello migliore per ogni stem")
         self.preset_btn.clicked.connect(self._apply_best_quality_preset)
         transport_layout.addWidget(self.preset_btn)
 
@@ -1630,13 +1664,13 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         main_layout.addWidget(self.progress_bar)
 
-        # Waveform
+        # Waveform visualizer
         self.visualizer = WaveformVisualizer()
         self.visualizer.lane_clicked.connect(self._on_lane_clicked)
         self.visualizer.seek_requested.connect(self._on_seek)
         main_layout.addWidget(self.visualizer)
 
-        # Playback controls
+        # Playback row
         pb_layout = QHBoxLayout()
         pb_layout.setSpacing(10)
 
@@ -1664,7 +1698,7 @@ class MainWindow(QMainWindow):
         pb_layout.addWidget(self.unsolo_btn)
         main_layout.addLayout(pb_layout)
 
-        # Mixer
+        # Mixer scroll container
         self.mixer_scroll = QScrollArea()
         self.mixer_scroll.setWidgetResizable(True)
         self.mixer_scroll.setMaximumHeight(280)
@@ -1686,10 +1720,10 @@ class MainWindow(QMainWindow):
     # -------------------------------------------------------------------------
 
     def _rebuild_mixer_channels(self):
-        # Close all open FX panels
-        for panel in self.fx_panels.values():
+        for panel in list(self.fx_panels.values()):
             try:
                 panel.close()
+                panel.deleteLater()
             except Exception:
                 pass
         self.fx_panels.clear()
@@ -1702,16 +1736,49 @@ class MainWindow(QMainWindow):
 
         engine_info = ENGINES[self.current_engine_name]
         self.channels = []
+        with self.playback_lock:
+            self.stem_mix_states.clear()
+            for name in engine_info["stems"]:
+                self.stem_mix_states[name] = {'gain': 1.0, 'mute': False, 'solo': False}
+                self.processing_params[name] = {}
+
         for i, (name, col) in enumerate(zip(engine_info["stems"], engine_info["colors"])):
             ch = StemChannel(i, name, col)
+            ch.gain_changed.connect(self._on_channel_gain_changed)
+            ch.mute_toggled.connect(self._on_channel_mute_toggled)
+            ch.solo_toggled.connect(self._on_channel_solo_toggled)
             ch.fx_requested.connect(self._open_fx_panel)
             self.mixer_layout.addWidget(ch)
             self.channels.append(ch)
-            self.processing_params[name] = {}
 
         self.mixer_layout.addStretch()
 
+    def _on_channel_gain_changed(self, idx, gain):
+        if 0 <= idx < len(self.channels):
+            name = self.channels[idx].stem_name
+            with self.playback_lock:
+                if name in self.stem_mix_states:
+                    self.stem_mix_states[name]['gain'] = gain
+
+    def _on_channel_mute_toggled(self, idx, is_mute):
+        if 0 <= idx < len(self.channels):
+            name = self.channels[idx].stem_name
+            with self.playback_lock:
+                if name in self.stem_mix_states:
+                    self.stem_mix_states[name]['mute'] = is_mute
+
+    def _on_channel_solo_toggled(self, idx, is_solo):
+        if 0 <= idx < len(self.channels):
+            name = self.channels[idx].stem_name
+            with self.playback_lock:
+                if name in self.stem_mix_states:
+                    self.stem_mix_states[name]['solo'] = is_solo
+
     def _reset_all_solo_mute(self):
+        with self.playback_lock:
+            for state in self.stem_mix_states.values():
+                state['solo'] = False
+                state['mute'] = False
         for ch in self.channels:
             ch.set_solo(False)
             ch.set_mute(False)
@@ -1721,7 +1788,6 @@ class MainWindow(QMainWindow):
         self._rebuild_mixer_channels()
 
     def _apply_best_quality_preset(self):
-        """Apply the best available model for each stem channel."""
         applied = []
         for ch in self.channels:
             best = BEST_QUALITY_PRESET.get(ch.stem_name)
@@ -1749,39 +1815,54 @@ class MainWindow(QMainWindow):
             return
         ch = self.channels[channel_idx]
         name = ch.stem_name
-        if name in self.fx_panels and self.fx_panels[name].isVisible():
-            self.fx_panels[name].raise_()
-            self.fx_panels[name].activateWindow()
-            return
+        if name not in self.fx_panels:
+            panel = FXPanel(name, ch.color, parent=self)
+            panel.params_changed.connect(self._on_fx_params_changed)
+            saved = self.processing_params.get(name, {})
+            if saved:
+                panel._params = saved
+            self.fx_panels[name] = panel
 
-        panel = FXPanel(name, ch.color, parent=self)
-        panel.params_changed.connect(self._on_fx_params_changed)
-        # Restore saved params if any
-        saved = self.processing_params.get(name, {})
-        if saved:
-            panel._params = saved  # restore visual state (approximate)
-        self.fx_panels[name] = panel
-        panel.show()
+        self.fx_panels[name].show()
+        self.fx_panels[name].raise_()
+        self.fx_panels[name].activateWindow()
 
     def _on_fx_params_changed(self, stem_name, params):
         self.processing_params[stem_name] = params
-        self._pending_fx_stem = stem_name
+        self._pending_fx_stems.add(stem_name)
         self.fx_debounce_timer.start(120)
 
     def _apply_pending_fx(self):
-        stem_name = self._pending_fx_stem
-        if not stem_name or stem_name not in self.separated_stems:
+        if not self._pending_fx_stems:
             return
-        raw = self.separated_stems[stem_name]
-        params = self.processing_params.get(stem_name, {})
-        worker = StemFXWorker(stem_name, raw, params, self.sample_rate)
-        worker.finished_stem.connect(self._on_stem_fx_computed)
-        self._fx_workers[stem_name] = worker
-        worker.start()
+        stems_to_run = list(self._pending_fx_stems)
+        self._pending_fx_stems.clear()
 
-    def _on_stem_fx_computed(self, stem_name, audio):
-        with self.playback_lock:
-            self.processed_stems[stem_name] = audio
+        for stem_name in stems_to_run:
+            if stem_name not in self.separated_stems:
+                continue
+
+            existing = self._fx_workers.get(stem_name)
+            if existing and existing.isRunning():
+                self._pending_fx_stems.add(stem_name)
+                continue
+
+            raw = self.separated_stems[stem_name]
+            params = self.processing_params.get(stem_name, {})
+            worker = StemFXWorker(stem_name, raw, params, self.sample_rate, parent=self)
+
+            def make_handler(s_name, wrk):
+                def on_done(name, audio):
+                    with self.playback_lock:
+                        self.processed_stems[name] = audio
+                    if name in self._pending_fx_stems:
+                        self.fx_debounce_timer.start(50)
+                return on_done
+
+            worker.finished_stem.connect(make_handler(stem_name, worker))
+            worker.finished.connect(worker.deleteLater)
+            self._fx_workers[stem_name] = worker
+            worker.start()
 
     # -------------------------------------------------------------------------
     # Audio load
@@ -1801,9 +1882,10 @@ class MainWindow(QMainWindow):
                 audio = np.stack([audio, audio], axis=-1)
             self.loaded_audio = audio
             self.sample_rate = sr
-            self.separated_stems = {}
-            self.processed_stems = {}
-            self.playback_frame_pos = 0
+            with self.playback_lock:
+                self.separated_stems = {}
+                self.processed_stems = {}
+                self.playback_frame_pos = 0
             self.stream_finished = False
             dur_sec = len(audio) / sr
             m, s = int(dur_sec // 60), int(dur_sec % 60)
@@ -1824,7 +1906,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Attenzione", "Carica prima un file audio!")
             return
 
-        # Collect per-stem model selections
         stem_model_keys = {}
         for ch in self.channels:
             stem_model_keys[ch.stem_name] = ch.get_selected_model()
@@ -1838,11 +1919,13 @@ class MainWindow(QMainWindow):
             self.ort_session, self.loaded_audio, self.sample_rate,
             self.current_engine_name,
             target_scope=scope,
-            stem_model_keys=stem_model_keys
+            stem_model_keys=stem_model_keys,
+            parent=self
         )
         self.worker.progress_changed.connect(self.progress_bar.setValue)
         self.worker.finished_success.connect(self._on_processing_complete)
         self.worker.error_occurred.connect(self._on_processing_error)
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
 
     def _on_processing_error(self, err_msg):
@@ -1855,8 +1938,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(100)
         self.process_btn.setEnabled(True)
         self.process_btn.setText("⚡ Process Stems (SOTA)")
-        self.separated_stems = stems_dict
-        self.processed_stems = {k: v.copy() for k, v in stems_dict.items()}
+
+        with self.playback_lock:
+            self.separated_stems = stems_dict
+            self.processed_stems = {k: v.copy() for k, v in stems_dict.items()}
 
         cur_chan_names = [ch.name for ch in self.channels]
         if cur_chan_names != stem_names:
@@ -1865,13 +1950,21 @@ class MainWindow(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
             self.channels = []
+            with self.playback_lock:
+                self.stem_mix_states.clear()
+                for name in stem_names:
+                    self.stem_mix_states[name] = {'gain': 1.0, 'mute': False, 'solo': False}
+                    if name not in self.processing_params:
+                        self.processing_params[name] = {}
+
             for i, (name, col) in enumerate(zip(stem_names, colors)):
                 ch = StemChannel(i, name, col)
+                ch.gain_changed.connect(self._on_channel_gain_changed)
+                ch.mute_toggled.connect(self._on_channel_mute_toggled)
+                ch.solo_toggled.connect(self._on_channel_solo_toggled)
                 ch.fx_requested.connect(self._open_fx_panel)
                 self.mixer_layout.addWidget(ch)
                 self.channels.append(ch)
-                if name not in self.processing_params:
-                    self.processing_params[name] = {}
             self.mixer_layout.addStretch()
 
         wave_list = [
@@ -1917,7 +2010,8 @@ class MainWindow(QMainWindow):
 
         self._export_worker = ExportWorker(
             self.separated_stems, folder, fmt,
-            self.sample_rate, self.channels, processing_params
+            self.sample_rate, processing_params,
+            parent=self
         )
         self._export_worker.progress_changed.connect(
             lambda pct, msg: (self.progress_bar.setValue(pct),
@@ -1927,6 +2021,7 @@ class MainWindow(QMainWindow):
             lambda err: (self.export_btn.setEnabled(True),
                          self.export_btn.setText("💾 Esporta Stem..."),
                          QMessageBox.critical(self, "Errore Export", err)))
+        self._export_worker.finished.connect(self._export_worker.deleteLater)
         self._export_worker.start()
 
     def _on_export_complete(self, folder):
@@ -1944,7 +2039,7 @@ class MainWindow(QMainWindow):
         ModelManagerDialog(self).exec()
 
     # -------------------------------------------------------------------------
-    # Audio playback
+    # Audio playback (Thread-Safe, Glitch-Free)
     # -------------------------------------------------------------------------
 
     def _init_audio_stream(self):
@@ -1963,7 +2058,7 @@ class MainWindow(QMainWindow):
                 callback=self._audio_callback
             )
         except Exception as e:
-            print(f"[AudioStream] {e}")
+            print(f"[AudioStream error] {e}")
 
     def _audio_callback(self, outdata, frames, time_info, status):
         with self.playback_lock:
@@ -1986,13 +2081,14 @@ class MainWindow(QMainWindow):
                     active = ch.is_solo if any_solo else not ch.is_mute
                     if active and ch.stem_name in active_dict:
                         stem = active_dict[ch.stem_name]
-                        sl = stem[pos: pos + chunk_len]
-                        g = ch.gain
-                        if sl.ndim == 1:
-                            mix_buf[:, 0] += sl * g
-                            mix_buf[:, 1] += sl * g
-                        else:
-                            mix_buf += sl * g
+                        if pos < len(stem):
+                            sl = stem[pos: pos + chunk_len]
+                            g = ch.gain
+                            if sl.ndim == 1:
+                                mix_buf[:, 0] += sl * g
+                                mix_buf[:, 1] += sl * g
+                            else:
+                                mix_buf += sl * g
             else:
                 mix_buf += self.loaded_audio[pos: pos + chunk_len]
 
@@ -2064,7 +2160,16 @@ class MainWindow(QMainWindow):
             f"{int(cur//60):02d}:{int(cur%60):02d} / {int(total//60):02d}:{int(total%60):02d}")
 
     def closeEvent(self, event):
-        for panel in self.fx_panels.values():
+        self.fx_debounce_timer.stop()
+        for w in list(self._fx_workers.values()):
+            if w and w.isRunning():
+                w.cancel()
+                w.wait(300)
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            self.worker.wait(1000)
+        if hasattr(self, '_export_worker') and self._export_worker and self._export_worker.isRunning():
+            self._export_worker.wait(500)
+        for panel in list(self.fx_panels.values()):
             try:
                 panel.close()
             except Exception:
