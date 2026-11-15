@@ -120,6 +120,5 @@ InferenceStats OnnxEngine::runAudioChunk(const float* inputData,
 
     return InferenceStats{ ms, activeProvider_, static_cast<size_t>(numInputElements * sizeof(float)) };
 }
-}
 
 } // namespace OpenPhoton
