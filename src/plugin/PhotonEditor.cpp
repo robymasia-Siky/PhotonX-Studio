@@ -42,14 +42,16 @@ public:
         ctx->drawLine(CPoint(r.left, r.top + 64), CPoint(r.right, r.top + 64));
 
         ctx->setFont(kNormalFont, 18, kBoldFace);
-        ctx->setFontColor(CColor(76, 201, 240, 255));
-        ctx->drawString("OPEN", CRect(24, 16, 90, 48), kLeftText, true);
         ctx->setFontColor(colText());
-        ctx->drawString("PHOTON", CRect(80, 16, 175, 48), kLeftText, true);
+        ctx->drawString("PHOTON", CRect(24, 16, 115, 48), kLeftText, true);
+        ctx->setFontColor(CColor(76, 201, 240, 255));
+        ctx->drawString("X", CRect(118, 16, 138, 48), kLeftText, true);
+        ctx->setFontColor(CColor(140, 152, 175, 255));
+        ctx->drawString("STUDIO", CRect(144, 16, 240, 48), kLeftText, true);
 
         ctx->setFont(kNormalFont, 10, kNormalFace);
         ctx->setFontColor(colMuted());
-        ctx->drawString("AI STEM DEMIX & RESTORE  |  GPU ONNX", CRect(24, 40, 280, 56), kLeftText, true);
+        ctx->drawString("AI STEM DEMIX & RESTORE  |  GPU ONNX DIRECTML", CRect(24, 40, 320, 56), kLeftText, true);
 
         CRect waveBox(24, 80, r.right - 24, 270);
         ctx->setFillColor(CColor(11, 14, 20, 255));

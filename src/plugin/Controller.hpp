@@ -9,6 +9,8 @@ public:
         return static_cast<Steinberg::Vst::IEditController*>(new Controller());
     }
     Steinberg::tresult PLUGIN_API initialize(Steinberg::FUnknown* context) override;
+    Steinberg::IPlugView* PLUGIN_API createView(Steinberg::Vst::FIDString name) override;
+    Steinberg::tresult PLUGIN_API setParamNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue value) override;
 };
 
 } // namespace OpenPhoton
