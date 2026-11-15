@@ -146,16 +146,22 @@ tresult PLUGIN_API Processor::setActive(TBool state) {
                 wchar_t pathBuf[MAX_PATH]{};
                 GetModuleFileNameW(hMod, pathBuf, MAX_PATH);
                 auto dir = std::filesystem::path(pathBuf).parent_path();
+                auto candidate0 = dir / L"htdemucs.onnx";
                 auto candidate1 = dir / L"bs_roformer_4stem.onnx";
                 auto candidate2 = dir / L"model.onnx";
-                if (std::filesystem::exists(candidate1)) {
+                if (std::filesystem::exists(candidate0)) {
+                    modelPath = candidate0.wstring();
+                } else if (std::filesystem::exists(candidate1)) {
                     modelPath = candidate1.wstring();
                 } else if (std::filesystem::exists(candidate2)) {
                     modelPath = candidate2.wstring();
                 } else {
+                    auto pdata0 = std::filesystem::path(L"C:\\ProgramData\\OpenPhoton\\models\\htdemucs.onnx");
                     auto pdata1 = std::filesystem::path(L"C:\\ProgramData\\OpenPhoton\\models\\bs_roformer_4stem.onnx");
                     auto pdata2 = std::filesystem::path(L"C:\\ProgramData\\OpenPhoton\\models\\model.onnx");
-                    if (std::filesystem::exists(pdata1)) {
+                    if (std::filesystem::exists(pdata0)) {
+                        modelPath = pdata0.wstring();
+                    } else if (std::filesystem::exists(pdata1)) {
                         modelPath = pdata1.wstring();
                     } else if (std::filesystem::exists(pdata2)) {
                         modelPath = pdata2.wstring();

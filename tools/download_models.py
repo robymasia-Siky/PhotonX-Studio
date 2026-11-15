@@ -13,6 +13,11 @@ MODELS_DIR = Path(__file__).parent.parent / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 MODEL_REGISTRY = {
+    "htdemucs.onnx": {
+        "url": "https://huggingface.co/smank/htdemucs-onnx/resolve/main/htdemucs.onnx",
+        "description": "Meta AI HTDemucs v4 Hybrid Transformer SOTA 4-Stem ONNX [290.2 MB]",
+        "expected_min_bytes": 300_000_000
+    },
     "Kim_Vocal_2.onnx": {
         "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx",
         "description": "Kimberley Jensen Vocal SOTA MDX-Net ONNX [63.7 MB]",

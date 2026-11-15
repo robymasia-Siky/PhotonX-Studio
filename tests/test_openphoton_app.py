@@ -1,5 +1,5 @@
 """
-Test OpenPhoton Standalone Application initialization and processing engines.
+Test OpenPhoton Standalone Application initialization, processing engines, and real-time mixer.
 """
 
 import sys
@@ -28,3 +28,52 @@ def test_app_window_creation(qapp):
     assert window.windowTitle().startswith("PhotonX Studio") or window.windowTitle().startswith("Open-Photon")
     assert window.current_engine_name == "Music 4-Stems (Ultra)"
     assert len(window.channels) == 4
+
+def test_realtime_audio_callback_mixing(qapp):
+    from openphoton_app import MainWindow
+    window = MainWindow()
+
+    sr = 44100
+    dur_samples = 44100
+    dummy_audio = np.ones((dur_samples, 2), dtype=np.float32)
+    window.loaded_audio = dummy_audio
+    window.sample_rate = sr
+
+    # Populate 4 separated stems: Vocals, Drums, Bass, Other
+    stems = {
+        "Vocals": np.full((dur_samples, 2), 1.0, dtype=np.float32),
+        "Drums": np.full((dur_samples, 2), 0.5, dtype=np.float32),
+        "Bass": np.full((dur_samples, 2), 0.2, dtype=np.float32),
+        "Other": np.full((dur_samples, 2), 0.1, dtype=np.float32),
+    }
+    window.separated_stems = stems
+
+    # 1. Default playback (all unmuted, gain = 1.0)
+    outdata = np.zeros((1024, 2), dtype=np.float32)
+    window._audio_callback(outdata, 1024, None, None)
+    expected_sum = 1.0 + 0.5 + 0.2 + 0.1 # 1.8
+    assert np.allclose(outdata[0, 0], expected_sum, atol=1e-3)
+
+    # 2. Test MUTE: mute Vocals
+    window.channels[0].set_mute(True) # Vocals muted
+    window._audio_callback(outdata, 1024, None, None)
+    expected_muted = 0.5 + 0.2 + 0.1 # 0.8
+    assert np.allclose(outdata[0, 0], expected_muted, atol=1e-3)
+
+    # 3. Test SOLO: solo Bass
+    window.channels[2].set_solo(True) # Bass soloed
+    window._audio_callback(outdata, 1024, None, None)
+    expected_solo = 0.2 # only Bass
+    assert np.allclose(outdata[0, 0], expected_solo, atol=1e-3)
+
+    # 4. Test FADER GAIN on soloed track:
+    window.channels[2].gain = 2.0
+    window._audio_callback(outdata, 1024, None, None)
+    assert np.allclose(outdata[0, 0], 0.4, atol=1e-3)
+
+    # 5. Test Seek
+    window._on_seek(0.5)
+    assert window.playback_frame_pos == dur_samples // 2
+
+    # Clean up
+    window.close()
