@@ -93,7 +93,7 @@ python openphoton_app.py
 
 ## 📦 Integrazione VST3 per DAW
 
-PhotonX include anche il codice sorgente del plugin nativo C++20 VST3 (`OpenPhoton.vst3`):
+PhotonX include anche il codice sorgente del plugin nativo C++20 VST3 (`PhotonX.vst3`):
 
 ### Compilazione del Plugin VST3
 ```bash
@@ -104,8 +104,8 @@ cmake --build . --config Release
 
 ### Installazione VST3 su Windows
 I plugin VST3 su Windows vengono cercati nelle seguenti cartelle standard:
-1. `%LOCALAPPDATA%\Programs\Common\VST3\OpenPhoton.vst3` (Nessun permesso admin richiesto)
-2. `C:\Program Files\Common Files\VST3\OpenPhoton.vst3` (Tutti gli utenti, richiede privilegi amministratore)
+1. `%LOCALAPPDATA%\Programs\Common\VST3\PhotonX.vst3` (Nessun permesso admin richiesto)
+2. `C:\Program Files\Common Files\VST3\PhotonX.vst3` (Tutti gli utenti, richiede privilegi amministratore)
 
 Per registrare automaticamente il plugin per tutte le DAW:
 - Fai clic destro su `Install_VST3_Admin.bat` e seleziona **"Esegui come amministratore"**.

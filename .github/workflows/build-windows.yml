@@ -1,4 +1,4 @@
-﻿name: Build OpenPhoton VST3 (Windows)
+﻿name: Build PhotonX VST3 (Windows)
 
 on:
   push:
@@ -32,10 +32,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Recurse -Force "build/VST3/Release/OpenPhoton.vst3" "dist/OpenPhoton.vst3"
+          Copy-Item -Recurse -Force "build/VST3/Release/PhotonX.vst3" "dist/PhotonX.vst3"
 
-      - name: Upload OpenPhoton.vst3 Artifact
+      - name: Upload PhotonX-Win64-VST3 Artifact
         uses: actions/upload-artifact@v6
         with:
-          name: OpenPhoton-Win64-VST3
+          name: PhotonX-Win64-VST3
           path: dist/

@@ -5,11 +5,11 @@
 #include "Controller.hpp"
 #include "PluginIds.hpp"
 
-#define stringPluginName "OpenPhoton"
+#define stringPluginName "PhotonX"
 
 using namespace Steinberg;
 
-BEGIN_FACTORY_DEF("OpenPhoton Contributors", "https://github.com/openphoton", "mailto:dev@openphoton.org")
+BEGIN_FACTORY_DEF("PhotonX Contributors", "https://github.com/robymasia-Siky/PhotonX-Studio", "mailto:dev@photonx.org")
 
     DEF_CLASS2(INLINE_UID_FROM_FUID(OpenPhoton::kProcessorUID),
                PClassInfo::kManyInstances,

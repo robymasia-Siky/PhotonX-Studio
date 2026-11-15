@@ -1,5 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(OpenPhoton VERSION 0.1.0 LANGUAGES CXX)
+project(PhotonX VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,7 +33,7 @@ set(vst3sdk_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/vst3sdk")
 add_subdirectory(${vst3sdk_SOURCE_DIR} ${PROJECT_BINARY_DIR}/vst3sdk EXCLUDE_FROM_ALL)
 smtg_enable_vst3_sdk()
 
-smtg_add_vst3plugin(OpenPhoton
+smtg_add_vst3plugin(PhotonX
     src/plugin/PluginIds.hpp
     src/plugin/PluginEntry.cpp
     src/plugin/Processor.hpp
@@ -42,19 +42,19 @@ smtg_add_vst3plugin(OpenPhoton
     src/plugin/Controller.cpp
 )
 
-target_link_libraries(OpenPhoton PRIVATE
+target_link_libraries(PhotonX PRIVATE
     sdk
     OpenPhotonCore
 )
 
 if(WIN32)
-    target_link_libraries(OpenPhoton PRIVATE delayimp)
-    target_link_options(OpenPhoton PRIVATE "/DELAYLOAD:onnxruntime.dll")
-    add_custom_command(TARGET OpenPhoton POST_BUILD
+    target_link_libraries(PhotonX PRIVATE delayimp)
+    target_link_options(PhotonX PRIVATE "/DELAYLOAD:onnxruntime.dll")
+    add_custom_command(TARGET PhotonX POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ORT_ROOT}/lib/onnxruntime.dll"
             "${ORT_ROOT}/lib/onnxruntime_providers_shared.dll"
             "${ORT_ROOT}/lib/onnxruntime_providers_cuda.dll"
-            "$<TARGET_FILE_DIR:OpenPhoton>"
+            "$<TARGET_FILE_DIR:PhotonX>"
     )
 endif()
