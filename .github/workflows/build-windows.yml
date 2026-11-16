@@ -9,18 +9,18 @@ jobs:
   build-win64:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - name: Clone VST3 SDK & Download ONNX Runtime GPU
+      - name: Setup Dependencies (whisper.cpp, demucs.cpp, vst3sdk)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path third_party | Out-Null
-          git clone --recursive --depth 1 https://github.com/steinbergmedia/vst3sdk.git third_party/vst3sdk
-          $OrtVer = "1.20.1"
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$OrtVer/onnxruntime-win-x64-gpu-$OrtVer.zip" -OutFile ort.zip
-          Expand-Archive ort.zip -DestinationPath third_party -Force
-          Rename-Item "third_party/onnxruntime-win-x64-gpu-$OrtVer" "onnxruntime"
-          Remove-Item ort.zip -Force
+          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git third_party/whisper.cpp
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/sevagh/demucs.cpp.git third_party/demucs.cpp
+          git clone --depth 1 https://github.com/steinbergmedia/vst3sdk.git third_party/vst3sdk
+          cd third_party/vst3sdk
+          git submodule update --init --recursive --depth 1 base cmake pluginterfaces public.sdk vstgui4
+          cd ../..
 
       - name: Configure CMake
         run: cmake -B build -G "Visual Studio 17 2022" -A x64
@@ -35,7 +35,7 @@ jobs:
           Copy-Item -Recurse -Force "build/VST3/Release/PhotonX.vst3" "dist/PhotonX.vst3"
 
       - name: Upload PhotonX-Win64-VST3 Artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: PhotonX-Win64-VST3
           path: dist/

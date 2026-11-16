@@ -5,23 +5,67 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
-# Whisper.cpp configuration
+include(FetchContent)
+
+# ---------------------------------------------------------------------------
+# 1. Whisper.cpp Setup
+# ---------------------------------------------------------------------------
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(GGML_CUDA OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(third_party/whisper.cpp EXCLUDE_FROM_ALL)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/whisper.cpp/CMakeLists.txt")
+    message(STATUS "third_party/whisper.cpp not found. Fetching whisper.cpp via FetchContent...")
+    FetchContent_Declare(
+        whisper_cpp
+        GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
+        GIT_TAG master
+        GIT_SHALLOW TRUE
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/whisper.cpp"
+    )
+    FetchContent_MakeAvailable(whisper_cpp)
+else()
+    add_subdirectory(third_party/whisper.cpp EXCLUDE_FROM_ALL)
+endif()
 
-# Demucs.cpp static library
+# ---------------------------------------------------------------------------
+# 2. Demucs.cpp Setup & Vendored Eigen Fallback
+# ---------------------------------------------------------------------------
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/src/model.hpp")
+    message(STATUS "third_party/demucs.cpp not found. Fetching demucs.cpp via FetchContent...")
+    FetchContent_Declare(
+        demucs_cpp
+        GIT_REPOSITORY https://github.com/sevagh/demucs.cpp.git
+        GIT_TAG master
+        GIT_SHALLOW TRUE
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp"
+    )
+    FetchContent_MakeAvailable(demucs_cpp)
+endif()
+
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/vendor/eigen/Eigen/Core")
+    message(STATUS "Demucs Eigen submodule not found. Fetching Eigen via FetchContent...")
+    FetchContent_Declare(
+        eigen_fallback
+        GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+        GIT_TAG 3.4.0
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(eigen_fallback)
+    set(DEMUCS_EIGEN_DIR "${eigen_fallback_SOURCE_DIR}")
+else()
+    set(DEMUCS_EIGEN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/vendor/eigen")
+endif()
+
 file(GLOB DEMUCS_SOURCES 
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/src/*.cpp"
 )
 add_library(demucs STATIC ${DEMUCS_SOURCES})
 target_include_directories(demucs PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/vendor/eigen"
+    "${DEMUCS_EIGEN_DIR}"
 )
 target_compile_features(demucs PUBLIC cxx_std_17)
 if(MSVC)
@@ -29,7 +73,9 @@ if(MSVC)
     target_compile_options(demucs PRIVATE /O2 /fp:fast)
 endif()
 
-# OpenPhoton Core Library
+# ---------------------------------------------------------------------------
+# 3. OpenPhoton Core Library
+# ---------------------------------------------------------------------------
 add_library(OpenPhotonCore STATIC
     src/core/WhisperAnalyzer.hpp
     src/core/WhisperAnalyzer.cpp
@@ -44,14 +90,16 @@ target_include_directories(OpenPhotonCore PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/whisper.cpp/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/whisper.cpp/ggml/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/demucs.cpp/vendor/eigen"
+    "${DEMUCS_EIGEN_DIR}"
 )
 target_link_libraries(OpenPhotonCore PUBLIC whisper demucs)
 if(MSVC)
     target_compile_definitions(OpenPhotonCore PRIVATE _USE_MATH_DEFINES NOMINMAX)
 endif()
 
-# Standalone Test & Benchmark CLI
+# ---------------------------------------------------------------------------
+# 4. Standalone Test & Benchmark CLI
+# ---------------------------------------------------------------------------
 add_executable(PhotonX-Runner
     src/main.cpp
 )
@@ -62,7 +110,9 @@ add_executable(test_stft
 )
 target_link_libraries(test_stft PRIVATE OpenPhotonCore)
 
-# VST3 Plugin
+# ---------------------------------------------------------------------------
+# 5. VST3 Plugin
+# ---------------------------------------------------------------------------
 set(vst3sdk_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/vst3sdk")
 if(EXISTS "${vst3sdk_SOURCE_DIR}/CMakeLists.txt")
     set(SMTG_CREATE_BUNDLE_FOR_WINDOWS ON CACHE BOOL "" FORCE)
