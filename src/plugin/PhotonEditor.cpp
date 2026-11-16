@@ -51,7 +51,7 @@ public:
 
         ctx->setFont(kNormalFont, 10, kNormalFace);
         ctx->setFontColor(colMuted());
-        ctx->drawString("AI STEM DEMIX & RESTORE  |  GPU ONNX DIRECTML", CRect(24, 40, 320, 56), kLeftText, true);
+        ctx->drawString("AI STEM DEMIX & RESTORE  |  GGML NATIVE ENGINE (DEMUCS + WHISPER)", CRect(24, 40, 480, 56), kLeftText, true);
 
         CRect waveBox(24, 80, r.right - 24, 270);
         ctx->setFillColor(CColor(11, 14, 20, 255));

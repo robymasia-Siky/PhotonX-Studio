@@ -18,8 +18,13 @@ venv/
 
 # Models & Heavy weights
 models/*.onnx
+models/*.bin
+models/*.ggml
 models/*.download
 *.onnx.download
+
+# Third party dependencies
+third_party/
 
 # Temp audio files
 *.wav

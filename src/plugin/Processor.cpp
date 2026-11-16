@@ -5,47 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #ifdef _WIN32
 #include <windows.h>
-#include <delayimp.h>
-#include <filesystem>
-
-static FARPROC WINAPI onnxDelayHook(unsigned dliNotify, PDelayLoadInfo pdli) {
-    if (dliNotify == dliNotePreLoadLibrary) {
-        if (pdli && pdli->szDll && _stricmp(pdli->szDll, "onnxruntime.dll") == 0) {
-            HMODULE hMod = nullptr;
-            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                   reinterpret_cast<LPCWSTR>(&onnxDelayHook),
-                                   &hMod)) {
-                wchar_t pathBuf[MAX_PATH]{};
-                GetModuleFileNameW(hMod, pathBuf, MAX_PATH);
-                auto dir = std::filesystem::path(pathBuf).parent_path();
-                SetDllDirectoryW(dir.c_str());
-
-                auto localShared = dir / L"onnxruntime_providers_shared.dll";
-                if (std::filesystem::exists(localShared)) {
-                    LoadLibraryExW(localShared.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-                }
-
-                auto localOrt = dir / L"onnxruntime.dll";
-                if (std::filesystem::exists(localOrt)) {
-                    HMODULE h = LoadLibraryExW(localOrt.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-                    if (h) return reinterpret_cast<FARPROC>(h);
-                }
-
-                auto bfxOrt = std::filesystem::path(L"C:\\Program Files\\Common Files\\BorisFX\\iZotope\\Photon\\onnxruntime.dll");
-                if (std::filesystem::exists(bfxOrt)) {
-                    HMODULE h = LoadLibraryExW(bfxOrt.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-                    if (h) return reinterpret_cast<FARPROC>(h);
-                }
-            }
-        }
-    }
-    return nullptr;
-}
-
-ExternC const PfnDliHook __pfnDliNotifyHook2 = onnxDelayHook;
 #endif
 
 namespace OpenPhoton {
@@ -54,46 +16,49 @@ using namespace Steinberg;
 using namespace Steinberg::Vst;
 
 namespace {
-void preloadOnnxRuntimeFromPluginDir() {
+
+std::filesystem::path getPluginDir() {
 #ifdef _WIN32
-    static bool loaded = false;
-    if (loaded) return;
     HMODULE hMod = nullptr;
     if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(&preloadOnnxRuntimeFromPluginDir),
+                           reinterpret_cast<LPCWSTR>(&getPluginDir),
                            &hMod)) {
         wchar_t pathBuf[MAX_PATH]{};
         GetModuleFileNameW(hMod, pathBuf, MAX_PATH);
-        auto dir = std::filesystem::path(pathBuf).parent_path();
-        SetDllDirectoryW(dir.c_str());
-        
-        // Priority 1: Local bundle directory with LOAD_WITH_ALTERED_SEARCH_PATH
-        auto localShared = dir / L"onnxruntime_providers_shared.dll";
-        auto localOrt = dir / L"onnxruntime.dll";
-        if (std::filesystem::exists(localOrt)) {
-            LoadLibraryExW(localShared.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-            LoadLibraryExW(localOrt.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-            loaded = true;
-            return;
-        }
-
-        // Priority 2: BorisFX / Photon installed modern v1.23.2 runtime
-        auto bfxShared = std::filesystem::path(L"C:\\Program Files\\Common Files\\BorisFX\\iZotope\\Photon\\onnxruntime_providers_shared.dll");
-        auto bfxOrt = std::filesystem::path(L"C:\\Program Files\\Common Files\\BorisFX\\iZotope\\Photon\\onnxruntime.dll");
-        if (std::filesystem::exists(bfxOrt)) {
-            LoadLibraryExW(bfxShared.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-            LoadLibraryExW(bfxOrt.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-            loaded = true;
-            return;
-        }
-
-        // Priority 3: Standard default
-        LoadLibraryW(localOrt.c_str());
-        loaded = true;
+        return std::filesystem::path(pathBuf).parent_path();
     }
 #endif
+    return std::filesystem::current_path();
 }
+
+std::string resolveModelPath(const std::string& filename) {
+    // 1. Check local models/ folder
+    auto localModels = std::filesystem::current_path() / "models" / filename;
+    if (std::filesystem::exists(localModels)) {
+        return localModels.string();
+    }
+
+    // 2. Check plugin directory
+    auto pluginDir = getPluginDir();
+    auto pluginModel = pluginDir / filename;
+    if (std::filesystem::exists(pluginModel)) {
+        return pluginModel.string();
+    }
+    auto pluginModelsSub = pluginDir / "models" / filename;
+    if (std::filesystem::exists(pluginModelsSub)) {
+        return pluginModelsSub.string();
+    }
+
+    // 3. Check ProgramData
+    auto pdata = std::filesystem::path("C:/ProgramData/OpenPhoton/models") / filename;
+    if (std::filesystem::exists(pdata)) {
+        return pdata.string();
+    }
+
+    return (std::filesystem::current_path() / "models" / filename).string();
+}
+
 } // namespace
 
 Processor::Processor() {
@@ -111,6 +76,7 @@ tresult PLUGIN_API Processor::initialize(FUnknown* context) {
 
 tresult PLUGIN_API Processor::terminate() {
     scheduler_.stop();
+    whisperAnalyzer_.stop();
     return AudioEffect::terminate();
 }
 
@@ -126,53 +92,23 @@ tresult PLUGIN_API Processor::setBusArrangements(
 }
 
 tresult PLUGIN_API Processor::setupProcessing(ProcessSetup& newSetup) {
+    sampleRate_ = newSetup.sampleRate > 8000.0 ? newSetup.sampleRate : 48000.0;
+    dspChain_.prepare(sampleRate_);
     return AudioEffect::setupProcessing(newSetup);
 }
 
 tresult PLUGIN_API Processor::setActive(TBool state) {
     if (state) {
-        preloadOnnxRuntimeFromPluginDir();
-        std::wstring modelPath;
-        if (const char* env = std::getenv("OPENPHOTON_MODEL")) {
-            std::string s(env);
-            modelPath.assign(s.begin(), s.end());
-        } else {
-#ifdef _WIN32
-            HMODULE hMod = nullptr;
-            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                   reinterpret_cast<LPCWSTR>(&preloadOnnxRuntimeFromPluginDir),
-                                   &hMod)) {
-                wchar_t pathBuf[MAX_PATH]{};
-                GetModuleFileNameW(hMod, pathBuf, MAX_PATH);
-                auto dir = std::filesystem::path(pathBuf).parent_path();
-                auto candidate0 = dir / L"htdemucs.onnx";
-                auto candidate1 = dir / L"bs_roformer_4stem.onnx";
-                auto candidate2 = dir / L"model.onnx";
-                if (std::filesystem::exists(candidate0)) {
-                    modelPath = candidate0.wstring();
-                } else if (std::filesystem::exists(candidate1)) {
-                    modelPath = candidate1.wstring();
-                } else if (std::filesystem::exists(candidate2)) {
-                    modelPath = candidate2.wstring();
-                } else {
-                    auto pdata0 = std::filesystem::path(L"C:\\ProgramData\\OpenPhoton\\models\\htdemucs.onnx");
-                    auto pdata1 = std::filesystem::path(L"C:\\ProgramData\\OpenPhoton\\models\\bs_roformer_4stem.onnx");
-                    auto pdata2 = std::filesystem::path(L"C:\\ProgramData\\OpenPhoton\\models\\model.onnx");
-                    if (std::filesystem::exists(pdata0)) {
-                        modelPath = pdata0.wstring();
-                    } else if (std::filesystem::exists(pdata1)) {
-                        modelPath = pdata1.wstring();
-                    } else if (std::filesystem::exists(pdata2)) {
-                        modelPath = pdata2.wstring();
-                    }
-                }
-            }
-#endif
-        }
-        scheduler_.start(modelPath);
+        const std::string demucsPath = resolveModelPath("ggml-model-htdemucs-f16.bin");
+        const std::string whisperPath = resolveModelPath("ggml-base.bin");
+
+        scheduler_.start(demucsPath);
+        whisperAnalyzer_.initialize(whisperPath, sampleRate_);
+        dspChain_.prepare(sampleRate_);
     } else {
         scheduler_.stop();
+        whisperAnalyzer_.stop();
+        dspChain_.reset();
     }
     return AudioEffect::setActive(state);
 }
@@ -228,15 +164,23 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
         playing = (data.processContext->state & ProcessContext::kPlaying) != 0;
     }
 
+    // Lock-free real-time AI states
+    const float breathGain = whisperAnalyzer_.getBreathGain();
+    const float sibilantIntensity = whisperAnalyzer_.getSibilantIntensity();
+    const auto autoEq = whisperAnalyzer_.getAutoEqGains();
+
     if (mode_ == 1 && playing) {
+        // Mode 1: Capture timeline audio for Demucs background separation & Whisper analysis
         for (int32 s = 0; s < data.numSamples; ++s) {
             cache_.writeCaptureSample(pos + s, inL[s], inR[s]);
             outL[s] = inL[s];
             outR[s] = inR[s];
         }
+        whisperAnalyzer_.pushAudio(inL, inR, static_cast<size_t>(data.numSamples));
         scheduler_.notifyPlayhead(pos);
         scheduler_.wakeWorker();
     } else if (mode_ == 2) {
+        // Mode 2: Real-time Stem Separation playback + DSP Chain
         scheduler_.notifyPlayhead(pos);
         for (int32 s = 0; s < data.numSamples; ++s) {
             float mL = 0.0f, mR = 0.0f;
@@ -248,9 +192,21 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
                 outR[s] = inR[s];
             }
         }
+        whisperAnalyzer_.pushAudio(outL, outR, static_cast<size_t>(data.numSamples));
+
+        dspChain_.process(outL, outR, static_cast<size_t>(data.numSamples),
+                          mix_.dryWet, breathGain, sibilantIntensity,
+                          autoEq.lowWarmthDb, autoEq.boxinessDb, autoEq.presenceDb, autoEq.airDb);
     } else {
+        // Mode 0: Direct Real-Time DSP Chain (zero-latency, lock-free)
         if (outL != inL) std::copy_n(inL, data.numSamples, outL);
         if (outR != inR) std::copy_n(inR, data.numSamples, outR);
+
+        whisperAnalyzer_.pushAudio(outL, outR, static_cast<size_t>(data.numSamples));
+
+        dspChain_.process(outL, outR, static_cast<size_t>(data.numSamples),
+                          mix_.dryWet, breathGain, sibilantIntensity,
+                          autoEq.lowWarmthDb, autoEq.boxinessDb, autoEq.presenceDb, autoEq.airDb);
     }
 
     fallbackCursor_ = pos + data.numSamples;

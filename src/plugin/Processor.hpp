@@ -3,6 +3,8 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "core/StemCache.hpp"
 #include "core/ChunkScheduler.hpp"
+#include "core/WhisperAnalyzer.hpp"
+#include "core/DSPChain.hpp"
 
 namespace OpenPhoton {
 
@@ -27,9 +29,12 @@ public:
 private:
     StemCache cache_;
     ChunkScheduler scheduler_{cache_};
+    WhisperAnalyzer whisperAnalyzer_;
+    DSPChain dspChain_;
     int mode_ = 0;
     StemMixParams mix_;
     int64_t fallbackCursor_ = 0;
+    double sampleRate_ = 48000.0;
 };
 
 } // namespace OpenPhoton
