@@ -33,14 +33,19 @@ std::filesystem::path getPluginDir() {
 }
 
 std::string resolveModelPath(const std::string& filename) {
-    // 1. Check local models/ folder
-    auto localModels = std::filesystem::current_path() / "models" / filename;
-    if (std::filesystem::exists(localModels)) {
-        return localModels.string();
+    const auto pluginDir = getPluginDir();
+
+    // 1. Check VST3 Bundle Resources folder (self-contained)
+    auto bundleResources = pluginDir.parent_path() / "Resources" / "models" / filename;
+    if (std::filesystem::exists(bundleResources)) {
+        return bundleResources.string();
+    }
+    auto bundleDirect = pluginDir.parent_path() / "Resources" / filename;
+    if (std::filesystem::exists(bundleDirect)) {
+        return bundleDirect.string();
     }
 
-    // 2. Check plugin directory
-    auto pluginDir = getPluginDir();
+    // 2. Check plugin binary directory
     auto pluginModel = pluginDir / filename;
     if (std::filesystem::exists(pluginModel)) {
         return pluginModel.string();
@@ -50,10 +55,22 @@ std::string resolveModelPath(const std::string& filename) {
         return pluginModelsSub.string();
     }
 
-    // 3. Check ProgramData
+    // 3. Check ProgramData global cache
     auto pdata = std::filesystem::path("C:/ProgramData/OpenPhoton/models") / filename;
     if (std::filesystem::exists(pdata)) {
         return pdata.string();
+    }
+
+    // 4. Check Open-Photon workspace repository
+    auto repoDev = std::filesystem::path("C:/Users/Utente/Desktop/Open-Photon/models") / filename;
+    if (std::filesystem::exists(repoDev)) {
+        return repoDev.string();
+    }
+
+    // 5. Check local current working directory
+    auto localModels = std::filesystem::current_path() / "models" / filename;
+    if (std::filesystem::exists(localModels)) {
+        return localModels.string();
     }
 
     return (std::filesystem::current_path() / "models" / filename).string();

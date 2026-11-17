@@ -141,4 +141,24 @@ if(EXISTS "${vst3sdk_SOURCE_DIR}/CMakeLists.txt")
         vstgui_support
         OpenPhotonCore
     )
+
+    if(WIN32 AND DEFINED ENV{LOCALAPPDATA})
+        add_custom_command(TARGET PhotonX POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/VST3/Release/PhotonX.vst3/Contents/Resources/models"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/models/ggml-base.bin"
+                "${CMAKE_CURRENT_SOURCE_DIR}/models/ggml-model-htdemucs-f16.bin"
+                "${PROJECT_BINARY_DIR}/VST3/Release/PhotonX.vst3/Contents/Resources/models"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$ENV{LOCALAPPDATA}/Programs/Common/VST3/PhotonX.vst3"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${PROJECT_BINARY_DIR}/VST3/Release/PhotonX.vst3"
+                "$ENV{LOCALAPPDATA}/Programs/Common/VST3/PhotonX.vst3"
+            COMMENT "Auto-deploying models and PhotonX.vst3 bundle to user VST3 directory"
+        )
+    endif()
+
+    add_executable(test_vst3_load
+        tests/test_vst3_load.cpp
+    )
+    target_link_libraries(test_vst3_load PRIVATE sdk)
 endif()
