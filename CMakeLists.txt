@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.24)
 project(PhotonX VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -142,18 +142,20 @@ if(EXISTS "${vst3sdk_SOURCE_DIR}/CMakeLists.txt")
         OpenPhotonCore
     )
 
-    if(WIN32 AND DEFINED ENV{LOCALAPPDATA})
+    if(WIN32)
+        set(LOCAL_VST3_DIR "")
+        if(DEFINED ENV{LOCALAPPDATA} AND NOT DEFINED ENV{CI})
+            set(LOCAL_VST3_DIR "$ENV{LOCALAPPDATA}/Programs/Common/VST3/PhotonX.vst3")
+        endif()
+
         add_custom_command(TARGET PhotonX POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/VST3/Release/PhotonX.vst3/Contents/Resources/models"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/models/ggml-base.bin"
-                "${CMAKE_CURRENT_SOURCE_DIR}/models/ggml-model-htdemucs-f16.bin"
-                "${PROJECT_BINARY_DIR}/VST3/Release/PhotonX.vst3/Contents/Resources/models"
-            COMMAND ${CMAKE_COMMAND} -E make_directory "$ENV{LOCALAPPDATA}/Programs/Common/VST3/PhotonX.vst3"
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${PROJECT_BINARY_DIR}/VST3/Release/PhotonX.vst3"
-                "$ENV{LOCALAPPDATA}/Programs/Common/VST3/PhotonX.vst3"
-            COMMENT "Auto-deploying models and PhotonX.vst3 bundle to user VST3 directory"
+            COMMAND ${CMAKE_COMMAND}
+                -DBUNDLE_DIR="$<TARGET_FILE_DIR:PhotonX>/../.."
+                -DMODELS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/models"
+                -DDEPLOY_DIR="${LOCAL_VST3_DIR}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/post_build.cmake"
+            VERBATIM
+            COMMENT "Finalizing PhotonX.vst3 bundle (bundling models & auto-deploying if local)"
         )
     endif()
 

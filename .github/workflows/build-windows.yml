@@ -1,4 +1,4 @@
-﻿name: Build PhotonX VST3 (Windows)
+name: Build PhotonX VST3 (Windows)
 
 on:
   push:
@@ -21,6 +21,11 @@ jobs:
           cd third_party/vst3sdk
           git submodule update --init --recursive --depth 1 base cmake pluginterfaces public.sdk vstgui4
           cd ../..
+
+      - name: Download GGML Pretrained Models
+        shell: pwsh
+        run: |
+          python tools/download_models.py
 
       - name: Configure CMake
         run: cmake -B build -G "Visual Studio 17 2022" -A x64
